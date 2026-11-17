@@ -1,0 +1,23 @@
+name: ToolScout quality checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate site
+        run: |
+          test -s toolscout/index.html
+          test -s toolscout/he/index.html
+          test -s toolscout/assets/site.js
+          test -s toolscout/sitemap.xml
+          grep -q 'lang="he" dir="rtl"' toolscout/he/index.html
+          grep -q 'data-calc="hourly"' toolscout/index.html
+          ! grep -q 'YOUR-USERNAME' toolscout/sitemap.xml
+          echo "ToolScout checks passed."
