@@ -2,3 +2,5 @@ research/data/
 __pycache__/
 .env
 *.db
+research/results/*.parquet
+research/results/*.log
