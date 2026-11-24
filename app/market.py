@@ -8,6 +8,7 @@ import httpx, numpy as np, pandas as pd, polars as pl, websockets
 from . import config as C
 
 log = logging.getLogger("market")
+REST_STATE = {"ok": None, "err": ""}
 COLS = ["open", "high", "low", "close", "volume", "quote_vol", "buy_vol", "trades"]
 
 
@@ -20,6 +21,7 @@ class BarStore:
         self.listeners_bar = []    # async fn(symbol, minute_ts)
         self.listeners_tick = []   # fn(symbol, ts_ms, price)
         self.status = {"ws": "disconnected", "history": "loading", "msg": ""}
+        self.connected_min = None   # minute in which the websocket (re)connected -> that bar is partial
 
     # ---------------- history ----------------
     def _cache(self, s):
@@ -28,12 +30,24 @@ class BarStore:
     def bootstrap(self):
         for s in self.symbols:
             try:
-                self.bars[s] = self._bootstrap_symbol(s)
+                hist = self._bootstrap_symbol(s)
+                self.bars[s] = _merge([self.bars[s], hist])     # keep live bars closed during bootstrap
                 log.info("history %s: %d bars, %s -> %s", s, len(self.bars[s]),
                          self.bars[s].index.min(), self.bars[s].index.max())
             except Exception as e:
                 log.exception("bootstrap %s failed: %s", s, e)
         self.status["history"] = "ready"
+        self.update_warn()
+
+    def update_warn(self):
+        need = pd.Timedelta(days=60)
+        short = [s for s in self.symbols if not len(self.bars[s]) or self.bars[s].index[-1] - self.bars[s].index[0] < need]
+        if REST_STATE["ok"] is False and short:
+            self.status["warn"] = ("לא ניתן להוריד היסטוריית נרות מ-Bybit (api.bybit.com חסום מהרשת הזו). "
+                                   "חלק מהבוטים יישארו במצב 'מתחמם' עד שיצטברו נתונים. "
+                                   "בדוק חיבור אינטרנט / VPN / חומת אש.")
+        else:
+            self.status.pop("warn", None)
 
     def _bootstrap_symbol(self, s):
         now = pd.Timestamp.utcnow().tz_localize(None).floor("min")
@@ -98,21 +112,15 @@ class BarStore:
 
     def _close_bar(self, s):
         c = self.cur.pop(s)
+        if self.connected_min is not None and c["t"] <= self.connected_min:
+            return              # bar started before we were connected -> incomplete; repair() refills it
         row = pd.DataFrame([{k: c[k] for k in COLS}], index=[c["t"]])
         df = self.bars[s]
         if len(df) and c["t"] <= df.index[-1]:
             return
-        # fill silent minutes (no trades) with flat bars so time is continuous
-        if len(df):
-            gap = pd.date_range(df.index[-1] + pd.Timedelta("1min"), c["t"] - pd.Timedelta("1min"), freq="1min")
-            if 0 < len(gap) <= 30:
-                p = df.close.iloc[-1]
-                filler = pd.DataFrame({"open": p, "high": p, "low": p, "close": p, "volume": 0.0,
-                                       "quote_vol": 0.0, "buy_vol": 0.0, "trades": 0}, index=gap)
-                row = pd.concat([filler, row])
         self.bars[s] = pd.concat([df, row])
         for f in self.listeners_bar:
-            asyncio.get_event_loop().create_task(f(s, c["t"]))
+            asyncio.get_running_loop().create_task(f(s, c["t"]))
 
     async def flush_minutes(self):
         """Close a minute bar even if no new trade arrived after the minute ended."""
@@ -123,6 +131,26 @@ class BarStore:
                 if self.cur[s]["t"] < now_min - pd.Timedelta(seconds=0) and time.time() % 60 > 2:
                     self._close_bar(s)
 
+    def repair(self, hours=48):
+        """Fill missing closed minutes of the last `hours` from Bybit REST klines."""
+        now = pd.Timestamp(int(time.time() * 1000) // 60000 * 60000, unit="ms")
+        for s in self.symbols:
+            df = self.bars[s]
+            if not len(df):
+                continue
+            start = max(df.index[0], now - pd.Timedelta(hours=hours))
+            fill = _rest_fill(s, df.loc[start:], start, now - pd.Timedelta("1min"))
+            if fill is not None and len(fill):
+                self.bars[s] = _merge([self.bars[s], fill])
+                log.info("repair %s: filled %d missing minutes from REST", s, len(fill))
+
+    async def run_repair(self):
+        while True:
+            await asyncio.sleep(300)
+            if self.status["history"] == "ready":
+                await asyncio.to_thread(self.repair)
+                self.update_warn()
+
     async def run_ws(self):
         backoff = 1
         while True:
@@ -130,6 +158,8 @@ class BarStore:
                 async with websockets.connect(C.WS_PUBLIC, ping_interval=20, open_timeout=20) as ws:
                     await ws.send(json.dumps({"op": "subscribe", "args": [f"publicTrade.{s}" for s in self.symbols]}))
                     self.status["ws"] = "connected"; backoff = 1
+                    self.connected_min = pd.Timestamp(int(time.time() * 1000) // 60000 * 60000, unit="ms")
+                    self.cur.clear()
                     async for msg in ws:
                         m = json.loads(msg)
                         if not m.get("topic", "").startswith("publicTrade"):
@@ -180,7 +210,7 @@ def _archive_day(s, day):
     return b
 
 
-def _rest_fill(s, df, start, now):
+def _rest_fill(s, df, start, now, client=None):
     """Fetch 1m klines from Bybit REST for missing ranges (buy_vol unknown -> NaN)."""
     idx = pd.date_range(start, now - pd.Timedelta("1min"), freq="1min")
     missing = idx.difference(df.index) if len(df) else idx
@@ -189,7 +219,8 @@ def _rest_fill(s, df, start, now):
     out = []
     # walk missing minutes in 1000-bar windows
     blocks = pd.Series(missing).groupby((pd.Series(missing).diff() != pd.Timedelta("1min")).cumsum())
-    client = httpx.Client(base_url=C.REST_BASE["mainnet"], timeout=20)
+    own = client is None
+    client = client or httpx.Client(base_url=C.REST_BASE["mainnet"], timeout=20)
     try:
         for _, blk in blocks:
             a, b = blk.iloc[0], blk.iloc[-1]
@@ -206,12 +237,16 @@ def _rest_fill(s, df, start, now):
                     out.append((pd.Timestamp(int(k[0]), unit="ms"), *map(float, k[1:7])))
                 cur = end + pd.Timedelta("1min")
     except Exception as e:
+        REST_STATE.update(ok=False, err=str(e)[:80])
         log.warning("REST kline %s unavailable (%s) - live data will fill forward", s, str(e)[:80])
         return None
     finally:
-        client.close()
+        if own:
+            client.close()
+    REST_STATE.update(ok=True, err="")
     if not out:
         return None
-    k = pd.DataFrame(out, columns=["t", "open", "high", "low", "close", "volume", "quote_vol"]).set_index("t")
+    k = pd.DataFrame(out, columns=["t", "open", "high", "low", "close", "volume", "quote_vol"]).set_index("t").sort_index()
+    k = k[~k.index.duplicated()]
     k["buy_vol"] = np.nan; k["trades"] = np.nan
     return k

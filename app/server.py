@@ -37,7 +37,8 @@ async def _live_sync():
 async def lifespan(app):
     store = BarStore(C.SYMBOLS); S["store"] = store
     live = LiveBroker(); S["live"] = live
-    tasks = [asyncio.create_task(store.run_ws()), asyncio.create_task(store.flush_minutes())]
+    tasks = [asyncio.create_task(store.run_ws()), asyncio.create_task(store.flush_minutes()),
+             asyncio.create_task(store.run_repair())]
     await asyncio.to_thread(store.bootstrap)
     await asyncio.to_thread(live.check)
     engine = Engine(store, live); S["engine"] = engine

@@ -66,7 +66,8 @@ function tradeCard(t, showBot = true) {
 // ---------- tabs ----------
 function renderBots() {
   const ov = STATE.ov;
-  return `<h2 style="margin-top:4px">הבוטים שלי</h2>` + ov.bots.map(b => {
+  const warn = ov.status.warn ? `<div class="card ins high small">⚠️ ${esc(ov.status.warn)}</div>` : "";
+  return warn + `<h2 style="margin-top:4px">הבוטים שלי</h2>` + ov.bots.map(b => {
     const fill = Math.max(2, Math.min(100, 50 + b.pnl_pct * 2));
     const wr = b.closed ? Math.round(100 * b.wins / b.closed) + "%" : "—";
     return `<div class="card tap" onclick="openBot('${b.id}')">
