@@ -32,7 +32,7 @@ class Costs:
     funding_8h: float = FUND_8H
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=False)
 def _simulate(o, h, l, c, sig, sl_d, tp_d, max_hold, exit_l, exit_s,
               tick, equity0, risk, max_lev, taker, maker, slip, fund8h,
               limit_entry, limit_wait):

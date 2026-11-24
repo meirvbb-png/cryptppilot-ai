@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>CryptoPilot בוטים</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="top-row">
+    <div>
+      <div class="muted small">סה״כ 4 בוטים · <span id="modeAll">דמו</span></div>
+      <div class="big" id="totEq">—</div>
+    </div>
+    <div class="top-right">
+      <div id="totPnl" class="pnl">—</div>
+      <div class="small muted"><span id="wsDot" class="dot"></span> <span id="wsTxt">מתחבר…</span></div>
+    </div>
+  </div>
+  <div class="prices" id="prices"></div>
+</header>
+
+<main id="view"></main>
+
+<div id="sheet" class="sheet hidden"><div class="sheet-bg" onclick="closeSheet()"></div><div class="sheet-body" id="sheetBody"></div></div>
+<div id="toast" class="toast hidden"></div>
+
+<nav class="tabs">
+  <button data-tab="bots" class="active"><span class="ic">🤖</span>בוטים</button>
+  <button data-tab="trades"><span class="ic">📋</span>עסקאות</button>
+  <button data-tab="chart"><span class="ic">📈</span>גרף</button>
+  <button data-tab="ai"><span class="ic">🧠</span>AI<span id="aiBadge" class="badge hidden"></span></button>
+  <button data-tab="more"><span class="ic">⚙️</span>עוד</button>
+</nav>
+<script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

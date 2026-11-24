@@ -24,7 +24,7 @@ def load_day(sym, day):
     return ob, tk
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=False)
 def _sim(ob_ts, bid, ask, imb, vol, tk_ts, tk_px, tk_buy, mode, thr, tp_k, sl_k, max_hold_ms,
          stale_ms, cooldown_ms, strict, maker, taker, slip_ticks, tick, notional):
     """mode 0 = OBI maker, 1 = OBI taker, 2 = PMM dynamic (two-sided, k*vol spread)."""

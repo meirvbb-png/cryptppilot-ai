@@ -4,3 +4,4 @@ __pycache__/
 *.db
 research/results/*.parquet
 research/results/*.log
+app_data/

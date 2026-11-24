@@ -48,7 +48,7 @@ def mfi(df, n=14):
     return 100 - 100 / (1 + pos / neg.replace(0, np.nan))
 
 
-@nb.njit(cache=True)
+@nb.njit(cache=False)
 def _supertrend(h, l, c, a, mult):
     n = len(c); d = np.ones(n, np.int8); st = np.full(n, np.nan)
     ub = (h + l) / 2 + mult * a; lb = (h + l) / 2 - mult * a
