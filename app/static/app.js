@@ -267,7 +267,7 @@ async function renderScan() {
         <div class="tiny muted">${when(a.ts)}</div></div>
       <div class="tiny" style="white-space:pre-line;margin-top:4px">${esc(a.text.split("\n").slice(1, -1).join("\n"))}</div>
       <a class="tiny" href="${bybitLink(a.symbol)}" target="_blank" rel="noopener" style="color:#93c5fd">פתח ב-Bybit ↗</a></div>`).join("")
-      : '<div class="muted small">אין עדיין התראות. הסורק בודק כל 10 דקות: ציון 60+, מטבע חדש, קפיצת נפח ×3, ועלייה של 20%+ בחוזים פתוחים. כל התראה נשלחת גם לטלגרם (אם חיברת בלשונית "עוד").</div>'}
+      : '<div class="muted small">אין עדיין התראות. הסורק בודק כל 10 דקות: ציון 60+, מטבע חדש, קפיצת נפח ×3, ועלייה של 20%+ בחוזים פתוחים.</div>'}
     ${sec("🏆 הציון הגבוה ביותר", d.top.slice(0, 12), "—")}
     <h2>🔥 טרנדים ברשתות (CoinGecko — הכי מחופשים)</h2>${trend || '<div class="muted small">—</div>'}
     <h2>📣 הנפקות קרובות (הודעות רשמיות של Bybit)</h2>${ann || '<div class="muted small">לא זמין מהשרת הזמני (חסום בארה"ב) — יעבוד מהמחשב שלך בישראל.</div>'}
@@ -317,18 +317,6 @@ async function renderMore() {
       <div>מסחר חי: <span class="muted">${esc(ov.live.reason)}</span></div>
       <div>גיבוי: ${ov.backup?.enabled ? (ov.backup.last_ok ? '<span class="up">פעיל · אחרון ' + when(ov.backup.last_ok) + '</span>' : '<span class="muted">פעיל · טרם בוצע</span>') + (ov.backup.error ? ' <span class="down">' + esc(ov.backup.error) + '</span>' : '') : '<span class="muted">לא מוגדר</span>'}</div>
       <div class="tiny muted" style="margin-top:6px">כל הבוטים במצב דמו: עסקאות וירטואליות על מחירי Bybit אמיתיים, עם עמלות והחלקה כמו בבדיקות.</div></div>
-    <details class="card small"><summary class="muted">🔔 התראות טלגרם (אופציונלי)</summary>
-      <div id="tgStatus" class="muted">בודק…</div>
-      <ol style="padding-inline-start:18px;margin:8px 0">
-        <li>בטלגרם, פתח את <a href="https://t.me/BotFather" target="_blank" rel="noopener" style="color:#93c5fd">@BotFather</a> ושלח <b>/newbot</b>.</li>
-        <li>בחר שם (למשל: הבוטים שלי) ושם משתמש שמסתיים ב-bot.</li>
-        <li>BotFather ישלח לך <b>טוקן</b> ארוך. העתק אותו.</li>
-        <li>פתח את הבוט החדש שלך (הקישור שקיבלת) ולחץ <b>Start</b>.</li>
-        <li>הדבק כאן את הטוקן ולחץ "חבר".</li>
-      </ol>
-      <input id="tgTok" placeholder="הטוקן מ-BotFather" autocomplete="off">
-      <div class="btns"><button class="btn" onclick="tgConnect()">חבר</button><button class="btn ghost" onclick="tgTest()">שלח בדיקה</button></div>
-    </details>
     <h2>קוד גישה</h2><div class="card"><input id="tok" placeholder="APP_TOKEN (אם הוגדר)" value="${esc(token())}"><div class="btns"><button class="btn" onclick="saveTok()">שמור</button></div></div>
     <h2>יומן פעילות</h2><div class="card">${ev.map(e => `<div class="tiny" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="muted">${when(e.ts)} · ${esc(e.bot_id || "")}</span><br>${esc(e.text)}</div>`).join("") || '<div class="muted small">—</div>'}</div>`;
 }
