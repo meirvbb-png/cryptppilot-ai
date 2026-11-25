@@ -14,3 +14,7 @@ uvicorn app:app --host 0.0.0.0 --port 8000
 או Docker (`docker build -t pt . && docker run -p 8000:8000 -v pt:/data pt`). לגישה מהטלפון יש לארח בשרת **באזור שאינו חסום ע"י Bybit** (Bybit חוסם ארה"ב ועוד).
 
 `PT_MOCK=1` – סימולטור אופליין לבדיקות בלבד (מסומן באדום בממשק). `pytest tests` להרצת הבדיקות.
+
+## הרצה על המחשב שלך (הכי פשוט, עם IP ישראלי)
+Mac/Linux: `./start.sh` · Windows: `start.bat` (דורש Python 3.10+). אחר כך פותחים בטלפון (אותה רשת Wi-Fi) את הכתובת שמודפסת.
+לגישה מחוץ לבית: `cloudflared tunnel --url http://localhost:8000` נותן קישור ציבורי זמני.
