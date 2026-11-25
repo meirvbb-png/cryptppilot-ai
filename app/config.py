@@ -29,6 +29,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "bots.db"
 # optional local history (the research archive) used as a cache
 HIST_DIR = Path(env("HIST_DIR", ROOT / "research" / "data" / "raw1m"))
+SEED_DIR = ROOT / "deploy" / "history"            # history snapshot shipped with the code (fast first start)
 HISTORY_DAYS = int(env("HISTORY_DAYS", "130"))      # needed by FreqAI (90d train + warm-up)
 ARCHIVE_DAYS = int(env("ARCHIVE_DAYS", "7"))        # days of tick archives (taker buy/sell volume)
 

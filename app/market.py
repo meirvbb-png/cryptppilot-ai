@@ -57,6 +57,8 @@ class BarStore:
         parts = []
         if self._cache(s).exists():
             parts.append(pd.read_parquet(self._cache(s)))
+        elif (C.SEED_DIR / f"bars_{s}.parquet").exists():
+            parts.append(pd.read_parquet(C.SEED_DIR / f"bars_{s}.parquet").astype(float))
         files = sorted(glob.glob(str(C.HIST_DIR / f"{s}_*.parquet")))
         files = [f for f in files if f[-18:-8] >= start.strftime("%Y-%m-%d")]
         if files:
