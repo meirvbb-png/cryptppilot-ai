@@ -1,10 +1,10 @@
 """Market data: live Bybit trades -> 1-minute bars (with taker buy volume), plus history bootstrap.
 
-History sources, in order: local parquet cache -> research archive (if present) ->
+History sources, in order: local npz cache -> shipped snapshot (deploy/history) -> research archive (if present) ->
 public.bybit.com tick archives (last ARCHIVE_DAYS days, gives buy/sell split) ->
 Bybit REST klines (older days and today's gap; no buy/sell split)."""
 import asyncio, datetime as dt, glob, io, json, logging, time
-import httpx, numpy as np, pandas as pd, polars as pl, websockets
+import httpx, numpy as np, pandas as pd, websockets
 from . import config as C
 
 log = logging.getLogger("market")
@@ -27,7 +27,7 @@ class BarStore:
 
     # ---------------- history ----------------
     def _cache(self, s):
-        return C.DATA_DIR / f"bars_{s}.parquet"
+        return C.DATA_DIR / f"bars_{s}.npz"
 
     def bootstrap(self):
         for s in self.symbols:
@@ -56,9 +56,9 @@ class BarStore:
         start = (now - pd.Timedelta(days=C.HISTORY_DAYS)).floor("D")
         parts = []
         if self._cache(s).exists():
-            parts.append(pd.read_parquet(self._cache(s)))
-        elif (C.SEED_DIR / f"bars_{s}.parquet").exists():
-            parts.append(pd.read_parquet(C.SEED_DIR / f"bars_{s}.parquet").astype(float))
+            parts.append(load_bars(self._cache(s)))
+        elif (C.SEED_DIR / f"bars_{s}.npz").exists():
+            parts.append(load_bars(C.SEED_DIR / f"bars_{s}.npz"))
         files = sorted(glob.glob(str(C.HIST_DIR / f"{s}_*.parquet")))
         files = [f for f in files if f[-18:-8] >= start.strftime("%Y-%m-%d")]
         if files:
@@ -78,14 +78,15 @@ class BarStore:
         self.status["msg"] = f"משלים נרות {s}"
         df = _merge([df, _rest_fill(s, df, start, now)])
         df = df.loc[start:]
-        df.to_parquet(self._cache(s))
+        save_bars(df, self._cache(s))
         self.status["msg"] = ""
         return df
 
     def save(self):
         for s in self.symbols:
             try:
-                self.bars[s].loc[pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=C.HISTORY_DAYS):].to_parquet(self._cache(s))
+                save_bars(self.bars[s].loc[pd.Timestamp.utcnow().tz_localize(None) - pd.Timedelta(days=C.HISTORY_DAYS):],
+                          self._cache(s))
             except Exception as e:
                 log.warning("save %s: %s", s, e)
 
@@ -202,7 +203,19 @@ def _merge(parts):
     return df[COLS].astype(float)
 
 
+def save_bars(df, path, dtype=np.float64):
+    """Compressed numpy archive (no pyarrow needed)."""
+    np.savez_compressed(path, t=df.index.as_unit("ms").asi8, **{c: df[c].to_numpy(dtype) for c in COLS})
+
+
+def load_bars(path):
+    z = np.load(path)
+    return pd.DataFrame({c: z[c].astype(np.float64) for c in COLS},
+                        index=pd.to_datetime(z["t"], unit="ms"))
+
+
 def _from_research(files):
+    import polars as pl                       # research archive only (dev machine)
     df = pl.concat([pl.read_parquet(f) for f in files]).to_pandas()
     df.index = pd.to_datetime(df.pop("t"), unit="ms")
     return df

@@ -38,7 +38,8 @@ class Brain:
     def __init__(self, store, engine):
         self.store = store; self.engine = engine
         self.state = dict(regimes={}, stats={}, updated=None)
-        self.last_param_check = {}
+        # first parameter re-check 6h after start-up (heavy without numba; then weekly)
+        self.last_param_check = {b: time.time() - 7 * 86400 + 6 * 3600 for b in engine.bots}
 
     # ------------------------------------------------------------------ loop
     async def run(self):

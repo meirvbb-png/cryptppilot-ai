@@ -9,7 +9,7 @@ from . import config as C
 log = logging.getLogger("backup")
 REPO = os.environ.get("HF_BACKUP_REPO", "")
 TOKEN = os.environ.get("HF_TOKEN", "")
-FILES = ["bots.db"] + [f"bars_{s}.parquet" for s in C.SYMBOLS]
+FILES = ["bots.db"] + [f"bars_{s}.npz" for s in C.SYMBOLS]
 STATUS = {"enabled": bool(REPO and TOKEN), "last_ok": None, "error": ""}
 
 

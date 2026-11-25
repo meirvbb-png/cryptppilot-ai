@@ -4,8 +4,6 @@ import time
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
-from sklearn.neighbors import NearestNeighbors
-from sklearn.metrics import pairwise_distances
 from research.bt import strategies as RS, ml as RML, ind
 from research.bt.data import resample
 
@@ -29,6 +27,26 @@ BOTS = [
          desc="LightGBM מסווג הסתברותי (האם היעד יושג לפני הסטופ), אימון מחדש שבועי, סינון חריגות DI."),
 ]
 TF_MIN = {"1h": 60, "4h": 240}
+
+# native LightGBM parameters equivalent to research/bt/ml.py LGB (LGBMClassifier) - no scikit-learn needed
+_LGB_NATIVE = dict(objective="binary", learning_rate=RML.LGB["learning_rate"], num_leaves=RML.LGB["num_leaves"],
+                   min_data_in_leaf=RML.LGB["min_child_samples"], bagging_fraction=RML.LGB["subsample"],
+                   bagging_freq=RML.LGB["subsample_freq"], feature_fraction=RML.LGB["colsample_bytree"],
+                   lambda_l2=RML.LGB["reg_lambda"], verbose=-1, num_threads=RML.LGB.get("n_jobs", 0))
+
+
+def _fit(X, y, w):
+    return lgb.train(_LGB_NATIVE, lgb.Dataset(X, label=y, weight=w), num_boost_round=RML.LGB["n_estimators"])
+
+
+def _mean_pairwise(Z):
+    sq = (Z * Z).sum(1)
+    d2 = np.maximum(sq[:, None] + sq[None, :] - 2 * Z @ Z.T, 0)
+    return float(np.sqrt(d2).mean())
+
+
+def _nearest(Ztr, z):
+    return float(np.sqrt(((Ztr - z) ** 2).sum(1)).min())
 
 
 def _last(a, k):
@@ -70,12 +88,11 @@ class FreqAIAdapter:
         mu, sd = Xv[tr].mean(0), Xv[tr].std(0) + 1e-9
         Ztr = (Xv[tr] - mu) / sd
         sub = Ztr[np.random.default_rng(0).choice(len(Ztr), min(1500, len(Ztr)), replace=False)]
-        avg = pairwise_distances(sub).mean()
+        avg = _mean_pairwise(sub.astype(np.float64))
         w = np.exp(-np.arange(len(tr))[::-1] / (len(tr) * 2.0))
-        mL = lgb.LGBMClassifier(**RML.LGB).fit(Xv[tr], yl[tr].astype(int), sample_weight=w)
-        mS = lgb.LGBMClassifier(**RML.LGB).fit(Xv[tr], ys[tr].astype(int), sample_weight=w)
-        nn = NearestNeighbors(n_neighbors=1).fit(Ztr)
-        self.models[sym] = (time.time(), mL, mS, mu, sd, nn, avg)
+        mL = _fit(Xv[tr], yl[tr].astype(int), w)
+        mS = _fit(Xv[tr], ys[tr].astype(int), w)
+        self.models[sym] = (time.time(), mL, mS, mu, sd, Ztr, avg)
         return self.models[sym]
 
     def evaluate(self, df1m, corr1m=None, sym=""):
@@ -87,12 +104,12 @@ class FreqAIAdapter:
             m = self._train(sym, base, X)
             if m is None:
                 return None
-        _, mL, mS, mu, sd, nn, avg = m
+        _, mL, mS, mu, sd, Ztr, avg = m
         x = X.to_numpy(np.float32)[-1:]
         if not np.isfinite(x).all():
             return None
-        di = nn.kneighbors((x - mu) / sd)[0][0, 0] / avg
-        pl_, ps_ = mL.predict_proba(x)[0, 1], mS.predict_proba(x)[0, 1]
+        di = _nearest(Ztr, ((x - mu) / sd)[0]) / avg
+        pl_, ps_ = float(mL.predict(x)[0]), float(mS.predict(x)[0])
         thr = self.p["thr"]; ok = di < 1.0
         sig = 1 if (ok and pl_ > thr and pl_ > ps_) else -1 if (ok and ps_ > thr and ps_ > pl_) else 0
         a = float(ind.atr(base, 14).iloc[-1])

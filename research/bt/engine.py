@@ -16,7 +16,16 @@ Execution model (conservative by design):
 """
 from dataclasses import dataclass
 import numpy as np
-import numba as nb
+try:
+    import numba as nb
+except ImportError:                       # lean installs: same code, pure Python
+    class _NB:
+        @staticmethod
+        def njit(*a, **k):
+            if a and callable(a[0]):
+                return a[0]
+            return lambda f: f
+    nb = _NB()
 
 TAKER = 0.00055   # Bybit USDT perp, non-VIP
 MAKER = 0.00020

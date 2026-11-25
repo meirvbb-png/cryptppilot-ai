@@ -1,7 +1,16 @@
 """Indicators (pandas/numba), matching pandas-ta / TA-Lib definitions used by Hummingbot & FreqAI."""
 import numpy as np
 import pandas as pd
-import numba as nb
+try:
+    import numba as nb
+except ImportError:                       # lean installs: same code, pure Python
+    class _NB:
+        @staticmethod
+        def njit(*a, **k):
+            if a and callable(a[0]):
+                return a[0]
+            return lambda f: f
+    nb = _NB()
 
 
 def ema(s, n): return s.ewm(span=n, adjust=False).mean()

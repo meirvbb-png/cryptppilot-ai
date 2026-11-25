@@ -1,0 +1,8 @@
+# Research / backtests (Stage 1) - heavier, not needed to run the bots
+-r requirements.txt
+polars==2.2.0
+pyarrow==26.0.1
+numba==0.68.1
+scikit-learn==1.9.1
+orjson==3.13.0
+sortedcontainers==2.4.0

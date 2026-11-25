@@ -2,7 +2,6 @@
 import glob, os
 import numpy as np
 import pandas as pd
-import polars as pl
 
 RAW = os.path.join(os.path.dirname(__file__), "..", "data", "raw1m")
 TICK = {"BTCUSDT": 0.1, "ETHUSDT": 0.01, "SOLUSDT": 0.01}
@@ -12,6 +11,7 @@ def load_1m(sym: str, start: str | None = None, end: str | None = None) -> pd.Da
     files = sorted(glob.glob(f"{RAW}/{sym}_*.parquet"))
     if start: files = [f for f in files if f[-18:-8] >= start]
     if end: files = [f for f in files if f[-18:-8] <= end]
+    import polars as pl
     df = pl.concat([pl.read_parquet(f) for f in files]).sort("t").unique("t", keep="first").to_pandas()
     idx = pd.date_range(pd.to_datetime(df.t.min(), unit="ms"), pd.to_datetime(df.t.max(), unit="ms"),
                         freq="1min")

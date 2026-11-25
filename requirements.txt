@@ -1,14 +1,8 @@
+# Bots + web app (lean: fits a 1 GB disk)
 fastapi==0.165.0
 uvicorn==0.54.0
 websockets==17.4
 httpx==0.28.1
 numpy==2.5.3
 pandas==3.0.5
-polars==2.2.0
-pyarrow==26.0.1
-numba==0.68.1
 lightgbm==4.7.0
-scikit-learn==1.9.1
-# research only (order-book rebuild)
-orjson==3.13.0
-sortedcontainers==2.4.0

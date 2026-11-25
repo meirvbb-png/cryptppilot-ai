@@ -15,8 +15,6 @@
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
-from sklearn.neighbors import NearestNeighbors
-from sklearn.metrics import pairwise_distances
 from . import ind
 from .data import resample
 
@@ -94,6 +92,8 @@ def tb_labels(base, sl_atr, tp_atr, hold):
 def walk_forward(base, X, mode="clf", train_days=90, step_days=7, label_period=24,
                  sl_atr=2.0, tp_atr=3.0, hold=24, di_threshold=1.0, start=None):
     """Returns DataFrame of out-of-sample predictions on tf bars."""
+    from sklearn.neighbors import NearestNeighbors
+    from sklearn.metrics import pairwise_distances
     tf_min = int((base.index[1] - base.index[0]).total_seconds() // 60)
     bars_day = 1440 // tf_min
     if mode == "reg":
