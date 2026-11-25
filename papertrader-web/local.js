@@ -13,7 +13,9 @@
 
   /* ---------- market data ---------- */
   async function jget(url) {
-    const r = await fetch(url, { cache: 'no-store' });
+    let r;
+    try { r = await fetch(url, { cache: 'no-store' }); }
+    catch (e) { throw new Error(url.split('/')[2] + ' חוסמת גישה ישירה מהדפדפן (CORS) – נדרש שרת'); }
     if (!r.ok) throw new Error(url.split('/')[2] + ' HTTP ' + r.status);
     return r.json();
   }
@@ -188,7 +190,7 @@
     return out;
   }
   async function processPos(p) {
-    const now = Date.now() / 1000, c = await ohlcv(p.exchange, p.symbol, '1m', 15), since = p.last_check * 1000, series = [];
+    const now = Date.now() / 1000, c = await ohlcv(p.exchange, p.symbol, '1m', Math.min(1000, Math.max(15, Math.floor((now - p.last_check) / 60) + 3))), since = p.last_check * 1000, series = [];
     for (const [t, , h0, l0, cl] of c) {
       if (t + 60000 <= since) continue;
       let h = h0, l = l0;

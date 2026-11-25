@@ -16,13 +16,19 @@ header{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 14px 8p
 .top .k{font-size:11px;color:var(--mut)}.top .v{font-size:20px;font-weight:700}.top .s .v{font-size:16px}
 #banner{display:none;margin:8px 14px;padding:8px 10px;border-radius:8px;background:#3a2a10;color:var(--y);font-size:13px}
 #banner.mock{background:#3a1010;color:#ff9b9b}
-.chartbox{margin:8px 14px;background:var(--card);border-radius:12px;padding:8px}
-.bar{display:flex;gap:6px;margin-bottom:6px;overflow-x:auto}
+.chartbox{margin:8px 10px;background:#131722;border:1px solid #1e222d;border-radius:10px;padding:6px 6px 2px;direction:ltr}
+.chartbox .bar{direction:rtl}
+#wrap{position:relative}
+#legend{position:absolute;top:6px;left:8px;z-index:3;font:12px/1.5 -apple-system,Segoe UI,Arial;color:#d1d4dc;pointer-events:none;direction:ltr;text-shadow:0 0 4px #131722}
+#legend b{font-size:13px}#legend .u{color:#26a69a}#legend .d{color:#ef5350}
+#legend .mt{color:#787b86}
+.bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 select,input{background:var(--card2);color:var(--tx);border:1px solid #2a3347;border-radius:8px;padding:8px;font-size:15px;width:100%}
-.bar select{width:auto}
-#chart{height:300px}
-.tf{display:flex;white-space:nowrap}.bar{align-items:center}.tf button{background:var(--card2);color:var(--mut);border:0;border-radius:6px;padding:6px 10px;margin-inline-end:4px}
-.tf button.on{background:var(--b);color:#fff}
+.bar select{width:auto;flex:1;min-width:0;padding:6px 8px;font-size:14px}
+#chart{height:min(52vh,430px);min-height:320px}
+.tf{display:flex;white-space:nowrap;width:100%;justify-content:space-between;direction:ltr;order:3}.bar{align-items:center}.tf button{background:transparent;color:#787b86;border:0;border-radius:4px;padding:6px 9px;margin-inline-end:2px;font-weight:600}
+.tf button.on{background:#2a2e39;color:#fff}
+.bar select{background:#1e222d;border-color:#2a2e39}
 section{display:none;padding:0 14px 70px}section.on{display:block}
 .card{background:var(--card);border-radius:12px;padding:12px;margin:10px 0}
 .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
@@ -61,7 +67,7 @@ nav button.on{color:#fff;border-top:2px solid var(--b)}
     <select id="exSel"></select><select id="symSel"></select>
     <div class="tf" id="tfBar"></div>
   </div>
-  <div id="chart"></div>
+  <div id="wrap"><div id="legend"></div><div id="chart"></div></div>
 </div>
 
 <section id="t-signals" class="on">
@@ -118,29 +124,70 @@ const cls=n=>n>0?'pos':n<0?'neg':'';
 let CFG,SIGS=[],POS=[],cur={ex:'bybit',sym:'BTC/USDT:USDT',tf:'15m'},lines=[],lastSig=null;
 
 /* chart */
-const chart=LightweightCharts.createChart($('chart'),{layout:{background:{color:'#141923'},textColor:'#8a94a8'},grid:{vertLines:{color:'#1b2230'},horzLines:{color:'#1b2230'}},rightPriceScale:{borderColor:'#2a3347'},timeScale:{borderColor:'#2a3347',timeVisible:true},autoSize:true});
-const series=chart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderVisible:false,wickUpColor:'#22c55e',wickDownColor:'#ef4444'});
+const UP='#26a69a',DN='#ef5350';
+const chart=LightweightCharts.createChart($('chart'),{
+  layout:{background:{type:'solid',color:'#131722'},textColor:'#b2b5be',fontFamily:'-apple-system,Segoe UI,Arial',fontSize:11},
+  grid:{vertLines:{color:'#1e222d'},horzLines:{color:'#1e222d'}},
+  crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#787b86',style:3,labelBackgroundColor:'#2a2e39'},horzLine:{color:'#787b86',style:3,labelBackgroundColor:'#2a2e39'}},
+  rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:.08,bottom:.22}},
+  timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:6,barSpacing:7},
+  localization:{locale:'he-IL',timeFormatter:t=>new Date(t*1000).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})},
+  autoSize:true});
+let extra=[];
+const series=chart.addCandlestickSeries({autoscaleInfoProvider:o=>{const b=o();if(!b||!extra.length)return b;return{priceRange:{minValue:Math.min(b.priceRange.minValue,...extra),maxValue:Math.max(b.priceRange.maxValue,...extra)},margins:b.margins}},upColor:UP,downColor:DN,borderUpColor:UP,borderDownColor:DN,wickUpColor:UP,wickDownColor:DN,
+  priceLineVisible:true,lastValueVisible:true});
+const vol=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol',lastValueVisible:false,priceLineVisible:false});
+chart.priceScale('vol').applyOptions({scaleMargins:{top:.82,bottom:0}});
+const ema20=chart.addLineSeries({color:'#f5b942',lineWidth:1,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
+const ema50=chart.addLineSeries({color:'#42a5f5',lineWidth:1,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
+function emaCalc(a,n){const o=[],k=2/(n+1);let e=null;a.forEach((x,i)=>{if(i<n-1){o.push(null);return}if(e===null)e=a.slice(0,n).reduce((s,y)=>s+y,0)/n;else e=x*k+e*(1-k);o.push(e)});return o}
+let candles=[];
+const pf=n=>n==null?'—':(n>=1000?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):n>=1?n.toFixed(4):n.toFixed(6));
+function legend(c,e20,e50){
+  if(!c){$('legend').innerHTML='';return}
+  const chg=(c.close-c.open)/c.open*100,k=chg>=0?'u':'d';
+  $('legend').innerHTML=`<b>${cur.sym.split(':')[0]} · ${cur.tf} · ${cur.ex.toUpperCase()}</b><br>`+
+   `<span class="mt">O</span> <span class="${k}">${pf(c.open)}</span> <span class="mt">H</span> <span class="${k}">${pf(c.high)}</span> <span class="mt">L</span> <span class="${k}">${pf(c.low)}</span> <span class="mt">C</span> <span class="${k}">${pf(c.close)}</span> <span class="${k}">${chg>=0?'+':''}${chg.toFixed(2)}%</span><br>`+
+   `<span style="color:#f5b942">EMA20 ${e20!=null?pf(e20):'—'}</span> <span style="color:#42a5f5">EMA50 ${e50!=null?pf(e50):'—'}</span>`;
+}
+function lastLegend(){const n=candles.length-1;if(n<0)return legend(null);const c=candles[n];legend(c,ema20d[n]&&ema20d[n].value,ema50d[n]&&ema50d[n].value)}
+let ema20d=[],ema50d=[];
+chart.subscribeCrosshairMove(p=>{
+  if(!p.time||!p.seriesData.size)return lastLegend();
+  const c=p.seriesData.get(series);if(!c)return lastLegend();
+  const e=p.seriesData.get(ema20),f=p.seriesData.get(ema50);legend(c,e&&e.value,f&&f.value);
+});
 async function loadChart(fit){
   try{
     const r=await fetch(`/api/ohlcv?exchange=${cur.ex}&symbol=${encodeURIComponent(cur.sym)}&tf=${cur.tf}`);
     if(!r.ok)throw new Error((await r.json()).detail);
     const d=await r.json();
-    series.setData(d.map(c=>({time:c[0]/1000,open:c[1],high:c[2],low:c[3],close:c[4]})));
-    if(fit)chart.timeScale().fitContent();
+    candles=d.map(c=>({time:c[0]/1000,open:c[1],high:c[2],low:c[3],close:c[4]}));
+    series.setData(candles);
+    vol.setData(d.map(c=>({time:c[0]/1000,value:c[5],color:c[4]>=c[1]?'rgba(38,166,154,.45)':'rgba(239,83,80,.45)'})));
+    const cl=candles.map(c=>c.close),e1=emaCalc(cl,20),e2=emaCalc(cl,50);
+    ema20d=candles.map((c,i)=>e1[i]==null?{time:c.time}:{time:c.time,value:e1[i]});
+    ema50d=candles.map((c,i)=>e2[i]==null?{time:c.time}:{time:c.time,value:e2[i]});
+    ema20.setData(ema20d);ema50.setData(ema50d);
+    if(fit){const n=candles.length;chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-95),to:n+8})}
+    lastLegend();
   }catch(e){setBanner('לא ניתן לטעון נרות: '+e.message)}
   drawLines();
 }
+const usd=n=>(n<0?'-':'+')+'$'+Math.abs(n).toFixed(2);
 function drawLines(){
-  lines.forEach(l=>series.removePriceLine(l));lines=[];
-  const add=(price,color,title,style=2)=>price&&lines.push(series.createPriceLine({price,color,lineWidth:1,lineStyle:style,axisLabelVisible:true,title}));
+  lines.forEach(l=>series.removePriceLine(l));lines=[];extra=[];
+  const add=(price,color,title,style=2,w=1)=>price&&(extra.push(price),lines.push(series.createPriceLine({price,color,lineWidth:w,lineStyle:style,axisLabelVisible:true,title})));
   POS.filter(p=>p.exchange===cur.ex&&p.symbol===cur.sym).forEach(p=>{
-    add(p.entry,'#3b82f6','Entry #'+p.id,0);add(p.sl,'#ef4444','SL');add(p.tp1,'#22c55e','TP1');add(p.tp2,'#16a34a','TP2');
+    const d=p.side==='LONG'?1:-1,at=x=>d*(x-p.entry)*p.qty;
+    add(p.entry,'#2962ff',`${p.side} ${p.leverage}x  ${p.status==='pending'?'LIMIT':'ENTRY'}`,0,2);
+    add(p.sl,'#ef5350','SL '+usd(at(p.sl)));add(p.tp1,'#26a69a','TP1 '+usd(at(p.tp1)));add(p.tp2,'#26a69a','TP2 '+usd(at(p.tp2)));
   });
   if(lastSig&&lastSig.exchange===cur.ex&&lastSig.symbol===cur.sym){
-    add(lastSig.entry,'#f5b942','איתות Entry',1);add(lastSig.sl,'#f87171','איתות SL',1);add(lastSig.tp1,'#4ade80','איתות TP1',1);add(lastSig.tp2,'#86efac','איתות TP2',1);
+    add(lastSig.entry,'#f5b942',`איתות ${lastSig.side}`,1,2);add(lastSig.sl,'#ff8a80','איתות SL',1);add(lastSig.tp1,'#69f0ae','איתות TP1',1);add(lastSig.tp2,'#b9f6ca','איתות TP2',1);
   }
 }
-$('tfBar').innerHTML=['5m','15m','1h','4h'].map(t=>`<button data-tf="${t}" class="${t==='15m'?'on':''}">${t}</button>`).join('');
+$('tfBar').innerHTML=['1m','5m','15m','1h','4h'].map(t=>`<button data-tf="${t}" class="${t==='15m'?'on':''}">${t}</button>`).join('');
 $('tfBar').onclick=e=>{const t=e.target.dataset.tf;if(!t)return;cur.tf=t;[...$('tfBar').children].forEach(b=>b.classList.toggle('on',b.dataset.tf===t));loadChart(true)};
 
 /* tabs */
@@ -162,7 +209,7 @@ async function refresh(){
     $('pc').textContent=POS.length?'('+POS.length+')':'';
     const errs=Object.entries(s.errors||{}).map(([k,v])=>k+': '+v).join(' | ');
     if(s.mock)setBanner('⚠ מצב סימולציה אופליין – המחירים אינם אמיתיים (PT_MOCK=1)',true);
-    else setBanner(errs?'בורסה לא זמינה: '+errs:'');
+    else setBanner(errs?'בורסה לא זמינה מהשרת: '+errs:'');
     renderPos();drawLines();
   }catch(e){setBanner('אין חיבור לשרת')}
 }

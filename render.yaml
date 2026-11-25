@@ -1,0 +1,11 @@
+# One-click free deploy (Render): New + > Blueprint > pick this repo/branch.
+# Frankfurt region so Bybit/MEXC public APIs are reachable (they block US IPs / browsers).
+services:
+  - type: web
+    name: paper-trader
+    runtime: docker
+    region: frankfurt
+    plan: free
+    dockerfilePath: ./papertrader/Dockerfile
+    dockerContext: ./papertrader
+    healthCheckPath: /api/config

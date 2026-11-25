@@ -124,7 +124,8 @@ def tick():
 
 def _process(p):
     now = time.time()
-    candles = ex.ohlcv(p["exchange"], p["symbol"], "1m", 15)
+    lookback = min(1000, max(15, int((now - p["last_check"]) / 60) + 3))
+    candles = ex.ohlcv(p["exchange"], p["symbol"], "1m", lookback)
     px = candles[-1][4]
     since = p["last_check"] * 1000
     series = []
