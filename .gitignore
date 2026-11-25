@@ -5,3 +5,6 @@ __pycache__/
 research/results/*.parquet
 research/results/*.log
 app_data/
+.venv/
+app_run.log
+.pytest_cache/

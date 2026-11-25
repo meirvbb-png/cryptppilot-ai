@@ -13,7 +13,7 @@ from .brain import Brain
 from .broker_live import LiveBroker
 from .regime import regime_detail
 from . import backup, signals
-from .scanner import Scanner, STATE as SCAN
+from .scanner import Scanner, STATE as SCAN, recent_alerts, KIND_HE
 from research.bt.data import resample
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -226,6 +226,9 @@ def scanner(limit: int = 40):
                        trending=SCAN["trending"], announcements=SCAN["announcements"], sources=SCAN["sources"],
                        volume_surges=sorted([r for r in rows if r["turnover"] > 2e6], key=lambda r: -r["turn_x"])[:10],
                        oi_surges=sorted([r for r in rows if r["turnover"] > 2e6], key=lambda r: -r["oi_chg"])[:10],
+                       alerts=[dict(a, kind_he=KIND_HE.get(a["kind"], a["kind"])) for a in recent_alerts(30)],
+                       signal_coins=SCAN.get("signal_coins", []),
+                       signals=db.q("SELECT * FROM signals WHERE bot_id='scan' ORDER BY status='active' DESC, ts DESC LIMIT 20"),
                        total=len(rows)))
 
 
@@ -235,7 +238,11 @@ def get_signals(limit: int = 100):
     st = S["store"]
     for r in rows:
         if r["status"] == "active":
-            px = st.last.get(r["symbol"], (0, r["entry"]))[1]
+            if r["symbol"] in st.last:
+                px = st.last[r["symbol"]][1]
+            else:                                    # scanner coin: live price from the scanner's ticker stream
+                sc = S.get("scanner")
+                px = float((sc.tick.get(r["symbol"], {}) if sc else {}).get("lastPrice") or r["entry"])
             r["price"] = px
             r["live_r"] = r["side"] * (px - r["entry"]) / abs(r["entry"] - r["sl"]) if r["entry"] != r["sl"] else 0
     tg = signals.kv_get("telegram") or {}

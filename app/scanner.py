@@ -13,14 +13,29 @@ Every row gets a 0-100 score and explicit risk flags.
 import asyncio, json, logging, re, time
 from collections import Counter, defaultdict, deque
 import httpx, websockets
-from . import config as C, db
+from . import config as C, db, signals
+from .scan_signals import ScanSignals
 
 log = logging.getLogger("scanner")
+# Watch-list alerts (never trades). Thresholds can be changed in .env.
+ALERT_SCORE = float(C.env("SCAN_ALERT_SCORE", "60"))        # score that counts as a standout coin
+ALERT_VOL_X = float(C.env("SCAN_ALERT_VOL_X", "3"))         # 24h turnover vs. ~24h ago
+ALERT_OI_PCT = float(C.env("SCAN_ALERT_OI_PCT", "20"))      # open-interest growth, %
+ALERT_COOLDOWN_H = float(C.env("SCAN_ALERT_COOLDOWN_H", "12"))
+ALERT_MAX_PER_SCAN = int(C.env("SCAN_ALERT_MAX", "5"))      # per kind, so one scan can't flood Telegram
+MIN_TURNOVER = 2_000_000
 UA = {"User-Agent": "Mozilla/5.0 (cryptopilot-scanner)"}
 STATE = {"updated": None, "rows": [], "trending": [], "new_listings": [], "announcements": [], "sources": {}}
 STABLE = {"USDCUSDT", "USDEUSDT", "FDUSDUSDT", "DAIUSDT", "TUSDUSDT"}
 
 db.x("""CREATE TABLE IF NOT EXISTS scan_symbols(symbol TEXT PRIMARY KEY, first_seen REAL, launch_ms REAL)""")
+db.x("""CREATE TABLE IF NOT EXISTS scan_alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, symbol TEXT,
+  kind TEXT, score REAL, price REAL, text TEXT)""")
+KIND_HE = {"score": "🏆 ציון גבוה", "new": "🆕 מטבע חדש ב-Bybit", "volume": "⚡ קפיצת נפח", "oi": "💰 כסף חדש נכנס"}
+
+
+def recent_alerts(limit=30):
+    return db.q("SELECT * FROM scan_alerts ORDER BY ts DESC LIMIT ?", (limit,))
 
 
 class Scanner:
@@ -28,6 +43,8 @@ class Scanner:
         self.tick = {}                                   # symbol -> latest ticker dict
         self.hist = defaultdict(lambda: deque(maxlen=200))  # symbol -> (ts, turnover24h, oi_value)
         self.symbols = []
+        self.fresh = set()                               # symbols that appeared while the app was running
+        self.sigs = ScanSignals()                        # Bot 1's rule on the top coins -> trade signals
 
     # ------------------------------------------------------------------ sources
     def _src(self, name, ok, note=""):
@@ -47,6 +64,8 @@ class Scanner:
             if s not in known:
                 # first run = baseline (age unknown); later appearances are real new listings
                 db.x("INSERT OR IGNORE INTO scan_symbols VALUES(?,?,NULL)", (s, 0 if first_run else now))
+                if not first_run:
+                    self.fresh.add(s)
         self.symbols = syms
         return syms
 
@@ -59,6 +78,9 @@ class Scanner:
                               params=dict(category="linear", limit=1000, cursor=cur), timeout=20).json()
                 for it in j["result"]["list"]:
                     db.x("UPDATE scan_symbols SET launch_ms=? WHERE symbol=?", (float(it.get("launchTime") or 0), it["symbol"]))
+                    tick = float((it.get("priceFilter") or {}).get("tickSize") or 0)
+                    if tick > 0 and it["symbol"] not in C.SYMBOLS:
+                        C.TICK[it["symbol"]] = tick      # exact price step for scanner signals
                     n += 1
                 cur = j["result"].get("nextPageCursor") or ""
                 if not cur:
@@ -127,6 +149,9 @@ class Scanner:
                             continue
                         cur = self.tick.setdefault(d["symbol"], {})
                         cur.update({k: v for k, v in d.items() if v not in (None, "")})
+                        if d.get("lastPrice") and d["symbol"] not in C.SYMBOLS:
+                            # track scanner signals (SL / TP / expiry); BTC/ETH/SOL are tracked by the bar store
+                            signals.on_tick(d["symbol"], m.get("ts", 0), float(d["lastPrice"]))
             except Exception as e:
                 self._src("bybit_ws", False, type(e).__name__)
                 await asyncio.sleep(backoff); backoff = min(60, backoff * 2)
@@ -183,6 +208,52 @@ class Scanner:
                                        key=lambda r: r["days_listed"])
         STATE["updated"] = now
         log.info("scan: %d symbols, top %s", len(rows), [r["symbol"] for r in rows[:5]])
+        self.alerts(rows, now)
+        STATE["signal_coins"] = [dict(symbol=s, **v) for s, v in self.sigs.last.items()]
+        try:
+            self.sigs.run(rows, lambda s: float(self.tick.get(s, {}).get("lastPrice") or 0) or None)
+        except Exception as e:
+            log.exception("scanner signals failed: %s", e)
+        STATE["signal_coins"] = [dict(symbol=s, **v) for s, v in self.sigs.last.items()]
+
+    # ------------------------------------------------------------------ alerts
+    def alerts(self, rows, now):
+        """Telegram + in-app alerts for standout coins. Watch-list only: no entry / stop / target."""
+        by = {r["symbol"]: r for r in rows}
+        liquid = [r for r in rows if r["turnover"] >= MIN_TURNOVER]
+        picks = {
+            "score": [r for r in rows if r["score"] >= ALERT_SCORE],
+            "new": [by[s] for s in sorted(self.fresh) if s in by],
+            "volume": sorted([r for r in liquid if r["turn_x"] >= ALERT_VOL_X], key=lambda r: -r["turn_x"]),
+            "oi": sorted([r for r in liquid if r["oi_chg"] >= ALERT_OI_PCT], key=lambda r: -r["oi_chg"]),
+        }
+        since = now - ALERT_COOLDOWN_H * 3600
+        for kind, lst in picks.items():
+            sent = 0
+            for r in lst:
+                if sent >= ALERT_MAX_PER_SCAN:
+                    break
+                if db.q("SELECT id FROM scan_alerts WHERE symbol=? AND kind=? AND ts>?", (r["symbol"], kind, since)):
+                    continue
+                text = self._alert_text(kind, r)
+                db.x("INSERT INTO scan_alerts(ts,symbol,kind,score,price,text) VALUES(?,?,?,?,?,?)",
+                     (now, r["symbol"], kind, r["score"], r["price"], text))
+                signals.telegram_send(text)
+                sent += 1
+                if kind == "new":
+                    self.fresh.discard(r["symbol"])
+
+    @staticmethod
+    def _alert_text(kind, r):
+        lines = [f"🔭 סורק · {KIND_HE[kind]}", f"{r['base']} ({r['symbol']}) · ציון {r['score']}/100",
+                 f"מחיר {r['price']:g} · 24ש׳ {r['chg24']:+.1f}%",
+                 f"נפח 24ש׳ ${r['turnover'] / 1e6:.1f}M (×{r['turn_x']:.1f}) · OI {r['oi_chg']:+.1f}%"]
+        if r.get("trending"):
+            lines.append(f"🔥 טרנד #{r['trending']} ב-CoinGecko")
+        if r["flags"]:
+            lines.append("⚠️ " + " · ".join(r["flags"]))
+        lines.append("התראה למעקב בלבד, לא המלצה לקנייה. הבוטים נבדקו רק על BTC/ETH/SOL.")
+        return "\n".join(lines)
 
     async def loop(self):
         await asyncio.to_thread(self.bybit_symbols)

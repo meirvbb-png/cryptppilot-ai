@@ -15,7 +15,7 @@ async function api(path, opt = {}) {
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.remove("hidden"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.add("hidden"), 3200); }
 
 // ---------- formatting ----------
-function dec(sym, p) { if (p == null) return 2; return p >= 1000 ? 1 : p >= 10 ? 2 : 4; }
+function dec(sym, p) { if (p == null) return 2; p = Math.abs(p); return p >= 1000 ? 1 : p >= 10 ? 2 : p >= 0.1 ? 4 : p > 0 ? Math.min(10, 3 - Math.floor(Math.log10(p))) : 4; }
 const fmtPx = (p, sym) => p == null ? "—" : Number(p).toLocaleString("en-US", { minimumFractionDigits: dec(sym, p), maximumFractionDigits: dec(sym, p) });
 const usd = (v, sign = false) => v == null ? "—" : (sign && v > 0 ? "+" : v < 0 ? "−" : "") + "$" + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pct = (v, sign = true) => v == null ? "—" : (sign && v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2) + "%";
@@ -139,7 +139,10 @@ function signalCard(s) {
       <div class="lv s"><div class="l">סטופ-לוס</div><div class="v num">${fmtPx(s.sl, s.symbol)}</div></div>
       <div class="lv t"><div class="l">טייק-פרופיט</div><div class="v num">${fmtPx(s.tp, s.symbol)}</div></div>
     </div>
-    <div class="small" style="margin-top:6px">גודל מוצע לתיק $500 (סיכון <span class="num">$${s.risk_usd}</span>): <b class="num">${s.qty}</b> ${SYM[s.symbol] || ""} · שווי <span class="num">${usd(s.notional)}</span> · <span class="num">${s.leverage.toFixed(1)}x</span> · יחס <span class="num">1:${s.rr.toFixed(1)}</span></div>
+    <div class="card small" style="margin:6px 0 0;padding:8px">💵 <b>כמה לשים</b> (תיק $500, סיכון 1%):
+      כמות <b class="num">${s.qty}</b> ${SYM[s.symbol] || esc(s.symbol.replace(/USDT$/, ""))} · שווי עסקה <b class="num">${usd(s.notional)}</b> (<span class="num">${s.leverage.toFixed(1)}x</span> מהתיק)
+      <br>מרווח נדרש במינוף 5x: <span class="num">${usd(s.notional / 5)}</span> · הפסד אם נגע בסטופ: <span class="num down">${usd(s.risk_usd)}</span> · יחס <span class="num">1:${s.rr.toFixed(1)}</span></div>
+    ${s.bot_id === "scan" ? `<div class="tiny" style="margin-top:4px">⚠️ ${esc(s.regime || "")} · האסטרטגיה נבדקה רק על BTC/ETH/SOL, על המטבע הזה היא לא נבדקה.</div>` : ""}
     <div class="row tiny muted" style="margin-top:4px"><span>${when(s.ts)}${s.status === "active" ? " · מחיר עכשיו <span class='num'>" + fmtPx(s.price, s.symbol) + "</span>" : " · נסגר <span class='num'>" + fmtPx(s.close_px, s.symbol) + "</span>"}</span>
       <span>${s.status === "active" ? "בתוקף עד " + when(s.expires_ts) : when(s.close_ts)}</span></div>
   </div>`;
@@ -254,6 +257,17 @@ async function renderScan() {
   const src = Object.entries(d.sources).map(([k, v]) => `<span class="chip wrap ${v.ok ? "pass" : "fail"}" style="margin:2px">${esc({ bybit_ws: "Bybit חי", bybit_list: "רשימת Bybit", bybit_rest: "Bybit הודעות", coingecko: "CoinGecko", reddit: "Reddit" }[k] || k)}: ${esc(v.note)}</span>`).join("");
   return `<div class="card ins high small">⚠️ הסורק <b>מציג ומתריע בלבד ולא סוחר</b>. מטבעות חדשים ו"ג'מים" הם המסוכנים ביותר בקריפטו — רובם יורדים וחלקם הונאות. הבוטים נבדקו רק על BTC/ETH/SOL.</div>
     <div class="tiny muted">עודכן ${when(d.updated)} · ${d.total} מטבעות נסרקו</div>
+    <h2>📣 איתותי מסחר מהסורק</h2>
+    <div class="tiny muted">אסטרטגיית בוט 1 (פריצת ערוץ 55 נרות 4h בכיוון EMA200) רצה על ${(d.signal_coins || []).length} המטבעות המובילים בסורק.
+      ${(d.signal_coins || []).length ? "במעקב: " + d.signal_coins.map(c => esc(c.symbol.replace(/USDT$/, "")) + (c.sig > 0 ? "🟢" : c.sig < 0 ? "🔴" : "")).join(" · ") : "רשימת המעקב תתמלא אחרי הסריקה הראשונה."}
+      איתות נוצר רק בסגירת נר 4h חדש.</div>
+    ${(d.signals || []).length ? d.signals.map(s => signalCard(Object.assign({ price: s.entry, live_r: 0 }, s))).join("") : '<div class="muted small">עדיין אין איתותים מהסורק. צפי: כמה איתותים בשבוע, לפי מצב השוק.</div>'}
+    <h2>🔔 התראות הסורק</h2>${(d.alerts || []).length ? d.alerts.map(a => `<div class="trade">
+      <div class="row"><div><b>${esc(a.symbol.replace(/USDT$/, ""))}</b> <span class="chip warn">${esc(a.kind_he)}</span></div>
+        <div class="tiny muted">${when(a.ts)}</div></div>
+      <div class="tiny" style="white-space:pre-line;margin-top:4px">${esc(a.text.split("\n").slice(1, -1).join("\n"))}</div>
+      <a class="tiny" href="${bybitLink(a.symbol)}" target="_blank" rel="noopener" style="color:#93c5fd">פתח ב-Bybit ↗</a></div>`).join("")
+      : '<div class="muted small">אין עדיין התראות. הסורק בודק כל 10 דקות: ציון 60+, מטבע חדש, קפיצת נפח ×3, ועלייה של 20%+ בחוזים פתוחים. כל התראה נשלחת גם לטלגרם (אם חיברת בלשונית "עוד").</div>'}
     ${sec("🏆 הציון הגבוה ביותר", d.top.slice(0, 12), "—")}
     <h2>🔥 טרנדים ברשתות (CoinGecko — הכי מחופשים)</h2>${trend || '<div class="muted small">—</div>'}
     <h2>📣 הנפקות קרובות (הודעות רשמיות של Bybit)</h2>${ann || '<div class="muted small">לא זמין מהשרת הזמני (חסום בארה"ב) — יעבוד מהמחשב שלך בישראל.</div>'}

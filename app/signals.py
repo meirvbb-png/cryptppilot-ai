@@ -81,8 +81,12 @@ def _fmt_new(s):
     return (f"📣 איתות חדש · {s['bot_name']}\n{SYM.get(s['symbol'], s['symbol'])} {d}\n"
             f"כניסה: {s['entry']}\nסטופ-לוס: {s['sl']}\nטייק-פרופיט: {s['tp']}\n"
             f"יחס סיכוי/סיכון: 1:{s['rr']:.1f}\n"
-            f"גודל מוצע לתיק $500 (סיכון $5): {s['qty']} ({s['leverage']:.1f}x)\n"
-            f"בדיקות עבר: {s['verdict']} · בתוקף עד {time.strftime('%d/%m %H:%M', time.localtime(s['expires_ts']))}")
+            f"💵 כמה לשים (תיק $500, סיכון 1%):\n"
+            f"  כמות: {s['qty']} · שווי עסקה ${s['notional']:,.2f} ({s['leverage']:.1f}x מהתיק)\n"
+            f"  מרווח נדרש במינוף 5x: ~${s['notional'] / 5:,.2f}\n"
+            f"  הפסד אם נגע בסטופ: ${s['risk_usd']:.2f}\n"
+            f"בדיקות עבר: {s['verdict']} · בתוקף עד {time.strftime('%d/%m %H:%M', time.localtime(s['expires_ts']))}"
+            + ("\n⚠️ איתות מהסורק: האסטרטגיה נבדקה רק על BTC/ETH/SOL. על מטבע זה היא לא נבדקה." if s["bot_id"] == "scan" else ""))
 
 
 def _fmt_close(s):
@@ -149,6 +153,11 @@ def on_tick(symbol, ts_ms, price):
 def catch_up(store):
     """Settle active signals against 1m bars that arrived late (sleep / reconnect)."""
     for s in db.q("SELECT * FROM signals WHERE status='active'"):
+        if s["symbol"] not in store.bars:
+            # scanner coin: no 1m history here, live ticks settle it; only expire it if its time ran out
+            if time.time() > s["expires_ts"]:
+                _close(s, "expired", s["entry"], s["expires_ts"])
+            continue
         tick = C.TICK.get(s["symbol"], 0.01); d = s["side"]
         start = pd.Timestamp(int(max(s["ts"], s["checked_ts"] or 0) * 1000) // 60000 * 60000 + 60000, unit="ms")
         bars = store.frame(s["symbol"]).loc[start:]
