@@ -176,6 +176,8 @@ class Scanner:
                              oi_chg=oi_chg, funding=fund, trending=trend.get(base), reddit=red.get(base, 0),
                              days_listed=days_listed, score=round(max(0, min(100, score))), flags=flags))
         rows.sort(key=lambda r: r["score"], reverse=True)
+        if STATE["sources"].get("bybit_ws", {}).get("ok"):
+            self._src("bybit_ws", True, f"{len(self.tick)} מטבעות בזמן אמת")
         STATE["rows"] = rows
         STATE["new_listings"] = sorted([r for r in rows if r["days_listed"] is not None and r["days_listed"] < 30],
                                        key=lambda r: r["days_listed"])
