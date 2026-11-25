@@ -20,6 +20,7 @@ class BarStore:
         self.last = {}         # symbol -> (ts_ms, price)
         self.listeners_bar = []    # async fn(symbol, minute_ts)
         self.listeners_tick = []   # fn(symbol, ts_ms, price)
+        self.listeners_repair = [] # fn() after gaps were filled
         self.status = {"ws": "disconnected", "history": "loading", "msg": ""}
         self._arch_tried = set()
         self.connected_min = None   # minute in which the websocket (re)connected -> that bar is partial
@@ -165,6 +166,8 @@ class BarStore:
             if self.status["history"] == "ready":
                 await asyncio.to_thread(self.repair)
                 self.update_warn()
+                for f in self.listeners_repair:
+                    f()
 
     async def run_ws(self):
         backoff = 1

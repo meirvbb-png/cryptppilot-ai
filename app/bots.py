@@ -39,6 +39,7 @@ class Bot:
                   db.jdump({"blocked_regimes": [], "params": spec["params"]}), time.time()))
             db.x("INSERT INTO equity VALUES(?,?,?)", (self.id, time.time(), 500.0))
         self.last_eval = {}
+        self._checked = {}
         saved = self.settings.get("params")
         if saved and hasattr(self.adapter, "p"):
             self.adapter.p = dict(self.adapter.p, **saved)    # parameters approved earlier via the AI
@@ -75,6 +76,8 @@ class Bot:
 
     # ---------- strategy evaluation on bar close ----------
     async def on_bar(self, symbol, minute_ts):
+        if self.open_trades(symbol):
+            self.catch_up()
         tfm = TF_MIN[self.spec["tf"]]
         closed_end = minute_ts + pd.Timedelta("1min")
         if (closed_end.value // 60_000_000_000) % tfm != 0:
@@ -157,9 +160,12 @@ class Bot:
         self._reload()
         db.event(self.id, f"נפתחה {'לונג' if side>0 else 'שורט'} {symbol} @ {entry} | SL {sl} | TP {tp} | כמות {qty}")
 
-    def close(self, t, price, reason):
+    def close(self, t, price, reason, at_ts=None, exit_override=None):
         side = t["side"]
-        if reason == "tp":
+        at_ts = at_ts or time.time()
+        if exit_override is not None:
+            exit_px, fee_rate = _round_px(exit_override, t["symbol"]), C.TAKER
+        elif reason == "tp":
             exit_px, fee_rate = t["tp"], C.MAKER
         elif reason == "sl":
             exit_px, fee_rate = _round_px(t["sl"] * (1 - C.SLIP * side), t["symbol"]), C.TAKER
@@ -170,16 +176,16 @@ class Bot:
                 self.broker_live.close(t["symbol"], side, t["qty"])
             except Exception as e:
                 db.event(self.id, f"סגירה חיה נכשלה: {e}", "error"); return
-        hours = (time.time() - t["entry_ts"]) / 3600
+        hours = max(0.0, at_ts - t["entry_ts"]) / 3600
         funding = t["notional"] * C.FUNDING_8H * hours / 8
         fees = t["fees"] + t["qty"] * exit_px * fee_rate
         pnl = side * t["qty"] * (exit_px - t["entry_px"]) - fees - funding
         eq = self.row["equity"] + pnl
         db.x("""UPDATE trades SET status='closed', exit_ts=?, exit_px=?, reason=?, fees=?, funding=?, pnl_net=?,
-                pnl_pct=? WHERE id=?""", (time.time(), exit_px, reason, fees, funding, pnl,
+                pnl_pct=? WHERE id=?""", (at_ts, exit_px, reason, fees, funding, pnl,
                                          100 * pnl / t["equity_before"], t["id"]))
         db.x("UPDATE bots SET equity=? WHERE id=?", (eq, self.id))
-        db.x("INSERT INTO equity VALUES(?,?,?)", (self.id, time.time(), eq))
+        db.x("INSERT INTO equity VALUES(?,?,?)", (self.id, at_ts, eq))
         self._reload()
         he = {"tp": "טייק-פרופיט", "sl": "סטופ-לוס", "signal": "איתות יציאה", "time": "זמן מקסימלי", "manual": "ידני"}
         db.event(self.id, f"נסגרה {t['symbol']} ({he.get(reason, reason)}) @ {exit_px} | נטו {pnl:+.2f}$")
@@ -196,6 +202,43 @@ class Bot:
                 self.close(t, price, "tp")
             elif time.time() - t["entry_ts"] > t["max_hold_min"] * 60:
                 self.close(t, price, "time")
+
+    def catch_up(self):
+        """Settle open paper trades against 1-minute bars that arrived late (computer sleep,
+        disconnects, server restart): same rules as the backtest - SL checked before TP in a
+        minute, a gap through the stop fills at that minute's open, TP needs a trade-through."""
+        for t in list(self.open_trades()):
+            if t["mode"] == "live":
+                continue
+            sym = t["symbol"]; s = t["side"]; tick = C.TICK.get(sym, 0.01)
+            start = pd.Timestamp(int(t["entry_ts"] * 1000) // 60000 * 60000 + 60000, unit="ms")
+            start = max(start, self._checked.get(t["id"], start))
+            bars = self.store.frame(sym).loc[start:]
+            if not len(bars):
+                continue
+            limit = pd.Timestamp(int((t["entry_ts"] + t["max_hold_min"] * 60) * 1000), unit="ms")
+            for ts, b in bars.iterrows():
+                at = ts.timestamp() + 59
+                if ts > limit:
+                    self.close(t, b.open, "time", at_ts=ts.timestamp()); break
+                if s > 0:
+                    if b.open <= t["sl"]:
+                        self.close(t, b.open, "sl", at_ts=ts.timestamp(), exit_override=b.open * (1 - C.SLIP)); break
+                    if b.low <= t["sl"]:
+                        self.close(t, b.low, "sl", at_ts=at); break
+                    if b.high >= t["tp"] + tick:
+                        self.close(t, b.high, "tp", at_ts=at); break
+                else:
+                    if b.open >= t["sl"]:
+                        self.close(t, b.open, "sl", at_ts=ts.timestamp(), exit_override=b.open * (1 + C.SLIP)); break
+                    if b.high >= t["sl"]:
+                        self.close(t, b.high, "sl", at_ts=at); break
+                    if b.low <= t["tp"] - tick:
+                        self.close(t, b.low, "tp", at_ts=at); break
+            else:
+                self._checked[t["id"]] = bars.index[-1] + pd.Timedelta("1min")
+                continue
+            db.event(self.id, f"{sym}: העסקה הוסדרה בדיעבד לפי נרות דקה (המערכת לא הייתה מחוברת בזמן הפגיעה)")
 
     def snapshot(self):
         """Balance incl. unrealized P&L for the UI."""
@@ -216,6 +259,7 @@ class Engine:
         self.bots = {b["id"]: Bot(b, store, broker_live) for b in BOTS}
         store.listeners_bar.append(self.on_bar)
         store.listeners_tick.append(self.on_tick)
+        store.listeners_repair.append(lambda: [b.catch_up() for b in self.bots.values()])
 
     async def on_bar(self, symbol, minute_ts):
         for b in self.bots.values():

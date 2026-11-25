@@ -77,3 +77,43 @@ def test_incomplete_bar_is_not_evaluated():
     assert calls == [] and b.last_eval["BTCUSDT"]["status"] == "missing_data"
     asyncio.run(b.on_bar("BTCUSDT", pd.Timestamp("2026-01-10 11:59")))   # next, complete bar -> evaluated
     assert calls == [1]
+
+
+def _sleep_bars(b, sym, entry_ts, rows):
+    """Append 1m bars after entry as if they were filled in after the computer woke up."""
+    t0 = pd.Timestamp(int(entry_ts) // 60 * 60 + 60, unit="s")
+    idx = pd.date_range(t0, periods=len(rows), freq="1min")
+    df = pd.DataFrame(rows, columns=["open", "high", "low", "close"], index=idx)
+    for c in ("volume", "quote_vol", "buy_vol", "trades"):
+        df[c] = 1.0
+    b.store.bars[sym] = df
+
+
+def test_catch_up_sl_tp_gap_time():
+    b = mk()
+    # long SOL @~100, SL 98, TP 103 -> TP hit in 3rd minute after sleep
+    b.open("SOLUSDT", dict(sig=1, sl_d=2.0, tp_d=3.0, hold_min=600), 100.0, "טרנד")
+    t = b.open_trades()[0]
+    _sleep_bars(b, "SOLUSDT", t["entry_ts"], [(100, 101, 99.5, 100.5), (100.5, 102, 100, 101), (101, 103.5, 100.8, 103)])
+    b.catch_up()
+    c = db.q("SELECT * FROM trades WHERE id=?", (t["id"],))[0]
+    assert c["status"] == "closed" and c["reason"] == "tp" and c["exit_px"] == t["tp"]
+    # short ETH, gap up through SL -> filled at the gap open (worse than SL), taker
+    b.open("ETHUSDT", dict(sig=-1, sl_d=20, tp_d=40, hold_min=600), 2000.0, "טרנד")
+    t = b.open_trades("ETHUSDT")[0]
+    _sleep_bars(b, "ETHUSDT", t["entry_ts"], [(2001, 2005, 1995, 2004), (2050, 2060, 2045, 2055)])
+    b.catch_up()
+    c = db.q("SELECT * FROM trades WHERE id=?", (t["id"],))[0]
+    assert c["reason"] == "sl" and c["exit_px"] > t["sl"] and c["pnl_net"] < 0
+    # SL and TP inside the same minute -> SL first (conservative)
+    b.open("SOLUSDT", dict(sig=1, sl_d=2.0, tp_d=3.0, hold_min=600), 100.0, "טרנד")
+    t = b.open_trades("SOLUSDT")[0]
+    _sleep_bars(b, "SOLUSDT", t["entry_ts"], [(100, 104, 97, 100)])
+    b.catch_up()
+    assert db.q("SELECT reason FROM trades WHERE id=?", (t["id"],))[0]["reason"] == "sl"
+    # nothing hit, max hold of 2 minutes exceeded -> time exit
+    b.open("SOLUSDT", dict(sig=1, sl_d=2.0, tp_d=3.0, hold_min=2), 100.0, "טרנד")
+    t = b.open_trades("SOLUSDT")[0]
+    _sleep_bars(b, "SOLUSDT", t["entry_ts"], [(100, 100.5, 99.5, 100)] * 5)
+    b.catch_up()
+    assert db.q("SELECT reason FROM trades WHERE id=?", (t["id"],))[0]["reason"] == "time"

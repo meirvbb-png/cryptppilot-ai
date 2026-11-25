@@ -45,6 +45,8 @@ async def lifespan(app):
     engine = Engine(store, live); S["engine"] = engine
     brain = Brain(store, engine); S["brain"] = brain
     await engine.warm_start()
+    for b in engine.bots.values():
+        b.catch_up()                     # settle trades that hit SL/TP while the app was off
     tasks += [asyncio.create_task(brain.run()), asyncio.create_task(_periodic()), asyncio.create_task(_live_sync()),
               asyncio.create_task(backup.loop(store))]
     log.info("ready on http://%s:%s", C.HOST, C.PORT)
