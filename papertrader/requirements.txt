@@ -1,0 +1,8 @@
+ccxt>=4.3
+pandas-ta>=0.4.71b0
+pandas
+numpy
+fastapi
+uvicorn
+pytest
+httpx

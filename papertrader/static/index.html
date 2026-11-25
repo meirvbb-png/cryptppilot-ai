@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<title>Paper Trader</title>
+<style>
+:root{--bg:#0b0e14;--card:#141923;--card2:#1b2230;--tx:#e8ecf3;--mut:#8a94a8;--g:#22c55e;--r:#ef4444;--b:#3b82f6;--y:#f5b942}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,Segoe UI,Arial;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+.pos{color:var(--g)}.neg{color:var(--r)}.mut{color:var(--mut)}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 14px 8px;border-bottom:1px solid #222a3a}
+.demo{font-size:11px;color:var(--y);letter-spacing:.5px}
+.top{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:8px;margin-top:4px}
+.top .k{font-size:11px;color:var(--mut)}.top .v{font-size:20px;font-weight:700}.top .s .v{font-size:16px}
+#banner{display:none;margin:8px 14px;padding:8px 10px;border-radius:8px;background:#3a2a10;color:var(--y);font-size:13px}
+#banner.mock{background:#3a1010;color:#ff9b9b}
+.chartbox{margin:8px 14px;background:var(--card);border-radius:12px;padding:8px}
+.bar{display:flex;gap:6px;margin-bottom:6px;overflow-x:auto}
+select,input{background:var(--card2);color:var(--tx);border:1px solid #2a3347;border-radius:8px;padding:8px;font-size:15px;width:100%}
+.bar select{width:auto}
+#chart{height:300px}
+.tf{display:flex;white-space:nowrap}.bar{align-items:center}.tf button{background:var(--card2);color:var(--mut);border:0;border-radius:6px;padding:6px 10px;margin-inline-end:4px}
+.tf button.on{background:var(--b);color:#fff}
+section{display:none;padding:0 14px 70px}section.on{display:block}
+.card{background:var(--card);border-radius:12px;padding:12px;margin:10px 0}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px}
+.LONG{background:#12331f;color:var(--g)}.SHORT{background:#3a1515;color:var(--r)}
+.lv{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0;font-size:12px}
+.lv div{background:var(--card2);border-radius:8px;padding:6px;text-align:center}.lv b{display:block;font-size:13px;direction:ltr}
+button.act{background:var(--b);color:#fff;border:0;border-radius:10px;padding:11px;font-weight:700;font-size:15px;width:100%;margin-top:6px}
+button.sec{background:var(--card2);color:var(--tx)}button.danger{background:#7f1d1d}
+details{margin-top:6px;font-size:13px;color:var(--mut)}details p{margin:4px 0}
+nav{position:fixed;bottom:0;inset-inline:0;display:flex;background:#10141d;border-top:1px solid #222a3a;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;border:0;color:var(--mut);padding:12px 4px;font-size:13px}
+nav button.on{color:#fff;border-top:2px solid var(--b)}
+.modal{position:fixed;inset:0;background:#000a;display:none;align-items:flex-end;z-index:20}.modal.on{display:flex}
+.sheet{background:var(--card);width:100%;border-radius:16px 16px 0 0;padding:16px;max-height:90vh;overflow:auto}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}label{font-size:12px;color:var(--mut);display:block;margin:6px 0 2px}
+.seg{display:flex;gap:6px}.seg button{flex:1;padding:10px;border-radius:8px;border:1px solid #2a3347;background:var(--card2);color:var(--tx)}
+.seg button.on.long{background:#12331f;border-color:var(--g)}.seg button.on.short{background:#3a1515;border-color:var(--r)}.seg button.on.neu{border-color:var(--b);background:#14264a}
+#err{color:#ff8a8a;font-size:13px;min-height:18px;margin-top:6px}
+.fab{position:fixed;bottom:calc(76px + env(safe-area-inset-bottom));inset-inline-start:14px;background:var(--b);color:#fff;border:0;border-radius:28px;padding:12px 18px;font-weight:700;z-index:6;box-shadow:0 4px 14px #0008}
+</style>
+</head>
+<body>
+<header>
+  <div class="demo">● מסחר דמו בלבד – אין כסף אמיתי · עמלת Taker 0.055%</div>
+  <div class="top">
+    <div><div class="k">יתרת תיק דמו (Equity)</div><div class="v" id="eq">$450.00</div></div>
+    <div class="s"><div class="k">PnL פתוח</div><div class="v" id="upnl">$0.00</div></div>
+    <div class="s"><div class="k">Win Rate</div><div class="v" id="wr">—</div></div>
+  </div>
+</header>
+<div id="banner"></div>
+
+<div class="chartbox">
+  <div class="bar">
+    <select id="exSel"></select><select id="symSel"></select>
+    <div class="tf" id="tfBar"></div>
+  </div>
+  <div id="chart"></div>
+</div>
+
+<section id="t-signals" class="on">
+  <div class="mut" id="sigMeta" style="margin:6px 0"></div>
+  <div id="sigList"></div>
+</section>
+<section id="t-pos"><div id="posList"></div></section>
+<section id="t-hist">
+  <div class="card"><div class="row"><b>ביצועים</b><span class="mut" id="hMeta"></span></div><div id="curve" style="height:120px"></div></div>
+  <div id="histList"></div>
+  <button class="act danger" onclick="resetAcc()">איפוס חשבון דמו ל-$450</button>
+</section>
+
+<button class="fab" onclick="openTrade()">+ עסקה ידנית</button>
+<nav>
+  <button class="on" data-t="signals">איתותי AI</button>
+  <button data-t="pos">פוזיציות פתוחות <span id="pc"></span></button>
+  <button data-t="hist">היסטוריה וביצועים</button>
+</nav>
+
+<div class="modal" id="modal" onclick="if(event.target===this)closeM()">
+  <div class="sheet">
+    <div class="row"><b id="mTitle">עסקת דמו</b><button class="tf" style="background:none;border:0;color:var(--mut);font-size:22px" onclick="closeM()">✕</button></div>
+    <div class="grid2">
+      <div><label>בורסה</label><select id="fEx"></select></div>
+      <div><label>צמד</label><select id="fSym"></select></div>
+    </div>
+    <label>כיוון</label>
+    <div class="seg" id="fSide"><button data-v="LONG" class="long on">LONG</button><button data-v="SHORT" class="short">SHORT</button></div>
+    <label>סוג פקודה</label>
+    <div class="seg" id="fType"><button data-v="market" class="neu on">Market</button><button data-v="limit" class="neu">Limit</button></div>
+    <div id="limBox" style="display:none"><label>מחיר Limit</label><input id="fLim" type="number" step="any" inputmode="decimal"></div>
+    <div class="grid2">
+      <div><label>סכום (מרג'ין $)</label><input id="fMargin" type="number" step="any" inputmode="decimal"></div>
+      <div><label>מינוף (x)</label><input id="fLev" type="number" step="1" inputmode="numeric"></div>
+      <div><label>Stop-Loss</label><input id="fSl" type="number" step="any" inputmode="decimal"></div>
+      <div><label>Take-Profit 1</label><input id="fTp1" type="number" step="any" inputmode="decimal"></div>
+      <div><label>Take-Profit 2 (אופציונלי)</label><input id="fTp2" type="number" step="any" inputmode="decimal"></div>
+    </div>
+    <div class="mut" id="fInfo" style="font-size:12px;margin-top:6px"></div>
+    <div id="err"></div>
+    <button class="act" onclick="submitTrade()">היכנס לעסקת דמו</button>
+  </div>
+</div>
+
+<script src="lw.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const fmt=(n,d=2)=>n==null?'—':Number(n).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const px=n=>n==null?'—':(n>=100?fmt(n,2):n>=1?fmt(n,4):fmt(n,6));
+const money=n=>'\u200E'+(n<0?'-':'')+'$'+fmt(Math.abs(n));
+const cls=n=>n>0?'pos':n<0?'neg':'';
+let CFG,SIGS=[],POS=[],cur={ex:'bybit',sym:'BTC/USDT:USDT',tf:'15m'},lines=[],lastSig=null;
+
+/* chart */
+const chart=LightweightCharts.createChart($('chart'),{layout:{background:{color:'#141923'},textColor:'#8a94a8'},grid:{vertLines:{color:'#1b2230'},horzLines:{color:'#1b2230'}},rightPriceScale:{borderColor:'#2a3347'},timeScale:{borderColor:'#2a3347',timeVisible:true},autoSize:true});
+const series=chart.addCandlestickSeries({upColor:'#22c55e',downColor:'#ef4444',borderVisible:false,wickUpColor:'#22c55e',wickDownColor:'#ef4444'});
+async function loadChart(fit){
+  try{
+    const r=await fetch(`/api/ohlcv?exchange=${cur.ex}&symbol=${encodeURIComponent(cur.sym)}&tf=${cur.tf}`);
+    if(!r.ok)throw new Error((await r.json()).detail);
+    const d=await r.json();
+    series.setData(d.map(c=>({time:c[0]/1000,open:c[1],high:c[2],low:c[3],close:c[4]})));
+    if(fit)chart.timeScale().fitContent();
+  }catch(e){setBanner('לא ניתן לטעון נרות: '+e.message)}
+  drawLines();
+}
+function drawLines(){
+  lines.forEach(l=>series.removePriceLine(l));lines=[];
+  const add=(price,color,title,style=2)=>price&&lines.push(series.createPriceLine({price,color,lineWidth:1,lineStyle:style,axisLabelVisible:true,title}));
+  POS.filter(p=>p.exchange===cur.ex&&p.symbol===cur.sym).forEach(p=>{
+    add(p.entry,'#3b82f6','Entry #'+p.id,0);add(p.sl,'#ef4444','SL');add(p.tp1,'#22c55e','TP1');add(p.tp2,'#16a34a','TP2');
+  });
+  if(lastSig&&lastSig.exchange===cur.ex&&lastSig.symbol===cur.sym){
+    add(lastSig.entry,'#f5b942','איתות Entry',1);add(lastSig.sl,'#f87171','איתות SL',1);add(lastSig.tp1,'#4ade80','איתות TP1',1);add(lastSig.tp2,'#86efac','איתות TP2',1);
+  }
+}
+$('tfBar').innerHTML=['5m','15m','1h','4h'].map(t=>`<button data-tf="${t}" class="${t==='15m'?'on':''}">${t}</button>`).join('');
+$('tfBar').onclick=e=>{const t=e.target.dataset.tf;if(!t)return;cur.tf=t;[...$('tfBar').children].forEach(b=>b.classList.toggle('on',b.dataset.tf===t));loadChart(true)};
+
+/* tabs */
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id==='t-'+b.dataset.t));
+  if(b.dataset.t==='hist')loadHist();
+});
+function setBanner(t,mock){const b=$('banner');b.style.display=t?'block':'none';b.textContent=t||'';b.className=mock?'mock':''}
+
+/* state */
+async function refresh(){
+  try{
+    const s=await (await fetch('/api/state')).json();
+    POS=s.positions;const a=s.account;
+    $('eq').textContent=money(a.equity);$('eq').className='v '+cls(a.equity-a.start);
+    $('upnl').textContent=money(a.upnl);$('upnl').className='v '+cls(a.upnl);
+    $('wr').textContent=a.win_rate==null?'—':fmt(a.win_rate,0)+'% ('+a.wins+'/'+a.trades+')';
+    $('pc').textContent=POS.length?'('+POS.length+')':'';
+    const errs=Object.entries(s.errors||{}).map(([k,v])=>k+': '+v).join(' | ');
+    if(s.mock)setBanner('⚠ מצב סימולציה אופליין – המחירים אינם אמיתיים (PT_MOCK=1)',true);
+    else setBanner(errs?'בורסה לא זמינה מהשרת: '+errs:'');
+    renderPos();drawLines();
+  }catch(e){setBanner('אין חיבור לשרת')}
+}
+function renderPos(){
+  $('posList').innerHTML=POS.length?POS.map(p=>`
+  <div class="card"><div class="row"><div><span class="tag ${p.side}">${p.side}</span> <b>${p.symbol.split(':')[0]}</b> <span class="mut">${p.exchange} · ${p.leverage}x ${p.status==='pending'?'· ממתין (Limit)':''}</span></div>
+  <b class="${cls(p.upnl)}">${p.status==='open'?money(p.upnl):''}</b></div>
+  <div class="lv"><div>כניסה<b>${px(p.entry)}</b></div><div>מחיר<b>${px(p.mark)}</b></div><div>SL<b>${px(p.sl)}</b></div><div>TP<b>${px(p.tp1)}${p.tp2?' / '+px(p.tp2):''}</b></div></div>
+  <div class="mut" style="font-size:12px">מרג'ין $${fmt(p.margin)} · כמות ${fmt(p.qty,4)} · עמלות $${fmt(p.fees,3)} ${p.tp1_hit?'· TP1 הושג, SL בכניסה':''}</div>
+  <button class="act sec" onclick="focusPos(${p.id})">הצג בגרף</button>
+  <button class="act danger" onclick="closePos(${p.id})">${p.status==='pending'?'בטל פקודה':'סגור עכשיו (דמו)'}</button></div>`).join(''):'<div class="card mut">אין פוזיציות פתוחות.</div>'
+}
+function focusPos(id){const p=POS.find(x=>x.id===id);cur.ex=p.exchange;cur.sym=p.symbol;$('exSel').value=p.exchange;$('symSel').value=p.symbol;loadChart(true);window.scrollTo({top:0,behavior:'smooth'})}
+async function closePos(id){if(!confirm('לסגור את הפוזיציה במחיר השוק (דמו)?'))return;await fetch('/api/close/'+id,{method:'POST'});refresh()}
+
+/* signals */
+async function loadSignals(){
+  try{
+    const d=await (await fetch('/api/signals')).json();SIGS=d.signals;
+    $('sigMeta').textContent=d.updated?`עודכן ${new Date(d.updated*1000).toLocaleTimeString('he-IL')} · ${SIGS.length} איתותים (מתחדש כל 2 דק׳)`:'מחשב איתותים ראשונים…';
+    $('sigList').innerHTML=SIGS.length?SIGS.map((s,i)=>`
+    <div class="card"><div class="row"><div><span class="tag ${s.side}">${s.side}</span> <b>${s.symbol.split(':')[0]}</b> <span class="mut">${s.exchange}</span></div><span class="mut">ביטחון ${s.confidence}%</span></div>
+    <div class="lv"><div>Entry<b>${px(s.entry)}</b></div><div>SL<b>${px(s.sl)}</b></div><div>TP1<b>${px(s.tp1)}</b></div><div>TP2<b>${px(s.tp2)}</b></div></div>
+    <div class="mut" style="font-size:12px">סיכון ${fmt(s.risk_pct*100,2)}% ($${fmt(s.risk_usd)}) · מינוף ${s.leverage}x · מרג'ין $${fmt(s.margin)}</div>
+    <details><summary>דיון הסוכנים</summary>${s.discussion.map(x=>`<p><b>${x.agent}:</b> ${x.text}</p>`).join('')}</details>
+    <button class="act sec" onclick="showSig(${i})">הצג בגרף</button>
+    <button class="act" onclick="openTrade(${i})">היכנס לעסקת דמו</button></div>`).join(''):'<div class="card mut">אין כרגע איתות עם יתרון ברור (או שהבורסה לא זמינה).</div>';
+  }catch(e){}
+}
+function showSig(i){lastSig=SIGS[i];cur.ex=lastSig.exchange;cur.sym=lastSig.symbol;$('exSel').value=cur.ex;$('symSel').value=cur.sym;loadChart(true);window.scrollTo({top:0,behavior:'smooth'})}
+
+/* trade form */
+let fSide='LONG',fType='market';
+function seg(id,cb){$(id).onclick=e=>{const v=e.target.dataset.v;if(!v)return;[...$(id).children].forEach(b=>b.classList.toggle('on',b===e.target));cb(v)}}
+seg('fSide',v=>fSide=v);seg('fType',v=>{fType=v;$('limBox').style.display=v==='limit'?'block':'none'});
+function setSeg(id,v){[...$(id).children].forEach(b=>b.classList.toggle('on',b.dataset.v===v))}
+function openTrade(i){
+  $('err').textContent='';$('fInfo').textContent='';
+  const s=i!=null?SIGS[i]:null;
+  $('mTitle').textContent=s?`עסקת דמו – ${s.symbol.split(':')[0]}`:'עסקת דמו ידנית';
+  $('fEx').value=s?s.exchange:cur.ex;$('fSym').value=s?s.symbol:cur.sym;
+  fSide=s?s.side:'LONG';setSeg('fSide',fSide);fType='market';setSeg('fType','market');$('limBox').style.display='none';
+  $('fMargin').value=s?s.margin.toFixed(2):'';$('fLev').value=s?s.leverage:5;
+  $('fSl').value=s?+s.sl.toPrecision(7):'';$('fTp1').value=s?+s.tp1.toPrecision(7):'';$('fTp2').value=s?+s.tp2.toPrecision(7):'';
+  $('modal').classList.add('on');
+}
+function closeM(){$('modal').classList.remove('on')}
+async function submitTrade(){
+  const n=id=>$(id).value===''?null:parseFloat($(id).value);
+  const body={exchange:$('fEx').value,symbol:$('fSym').value,side:fSide,margin:n('fMargin'),leverage:n('fLev'),sl:n('fSl'),tp1:n('fTp1'),tp2:n('fTp2'),order_type:fType,limit_price:n('fLim'),source:'form'};
+  const r=await fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!r.ok){const d=await r.json().catch(()=>({}));$('err').textContent=typeof d.detail==='string'?d.detail:'פרטים לא תקינים';return}
+  closeM();await refresh();document.querySelector('nav [data-t=pos]').click();
+}
+
+/* history */
+async function loadHist(){
+  const d=await (await fetch('/api/history')).json();
+  const t=d.trades.filter(x=>x.status==='closed');
+  const tot=t.reduce((s,x)=>s+x.realized,0);
+  $('hMeta').textContent=`${t.length} עסקאות · סה״כ ${money(tot)}`;
+  $('histList').innerHTML=t.length?t.map(x=>`<div class="card"><div class="row"><div><span class="tag ${x.side}">${x.side}</span> <b>${x.symbol.split(':')[0]}</b> <span class="mut">${x.exchange} · ${x.leverage}x</span></div><b class="${cls(x.realized)}">${money(x.realized)}</b></div>
+  <div class="mut" style="font-size:12px">${px(x.entry)} → ${px(x.close_price)} · ${x.close_reason} · עמלות $${fmt(x.fees,3)} · ${new Date(x.closed*1000).toLocaleString('he-IL')}</div></div>`).join(''):'<div class="card mut">עדיין אין עסקאות סגורות.</div>';
+  const c=$('curve');c.innerHTML='';
+  if(d.curve.length>1){
+    const ch=LightweightCharts.createChart(c,{layout:{background:{color:'#141923'},textColor:'#8a94a8'},grid:{vertLines:{visible:false},horzLines:{color:'#1b2230'}},autoSize:true,timeScale:{timeVisible:true}});
+    const l=ch.addLineSeries({color:'#3b82f6',lineWidth:2});
+    l.setData(d.curve.map(([t,b])=>({time:Math.floor(t),value:b})).filter((p,i,a)=>!i||p.time>a[i-1].time));ch.timeScale().fitContent();
+  }else c.innerHTML='<div class="mut" style="padding:40px 0;text-align:center">עקומת הון תופיע אחרי 2 עסקאות סגורות</div>';
+}
+async function resetAcc(){if(confirm('למחוק את כל ההיסטוריה ולאפס ל-$450?')){await fetch('/api/reset',{method:'POST'});refresh();loadHist()}}
+
+/* init */
+(async()=>{
+  CFG=await (await fetch('/api/config')).json();
+  const exo=CFG.exchanges.map(e=>`<option value="${e}">${e}</option>`).join('');
+  const syo=CFG.symbols.map(s=>`<option value="${s}">${s.split(':')[0]}</option>`).join('');
+  ['exSel','fEx'].forEach(i=>$(i).innerHTML=exo);['symSel','fSym'].forEach(i=>$(i).innerHTML=syo);
+  $('exSel').onchange=e=>{cur.ex=e.target.value;loadChart(true)};$('symSel').onchange=e=>{cur.sym=e.target.value;loadChart(true)};
+  await loadChart(true);refresh();loadSignals();
+  setInterval(refresh,3000);setInterval(loadSignals,15000);setInterval(()=>loadChart(false),5000);
+})();
+</script>
+</body>
+</html>
