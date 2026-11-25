@@ -21,6 +21,7 @@ class BarStore:
         self.listeners_bar = []    # async fn(symbol, minute_ts)
         self.listeners_tick = []   # fn(symbol, ts_ms, price)
         self.status = {"ws": "disconnected", "history": "loading", "msg": ""}
+        self._arch_tried = set()
         self.connected_min = None   # minute in which the websocket (re)connected -> that bar is partial
 
     # ---------------- history ----------------
@@ -143,6 +144,20 @@ class BarStore:
             if fill is not None and len(fill):
                 self.bars[s] = _merge([self.bars[s], fill])
                 log.info("repair %s: filled %d missing minutes from REST", s, len(fill))
+            # REST blocked (e.g. US servers): fill gaps of past days from the daily tick archive
+            df = self.bars[s]
+            for k in range(1, C.ARCHIVE_DAYS + 1):
+                day = (now - pd.Timedelta(days=k)).normalize()
+                if day < df.index[0].normalize() or (s, day) in self._arch_tried:
+                    continue
+                have = len(df.loc[day:day + pd.Timedelta("1439min")])
+                if have >= 1438:
+                    continue
+                self._arch_tried.add((s, day))
+                b = _archive_day(s, day.strftime("%Y-%m-%d"))
+                if b is not None and len(b):
+                    self.bars[s] = df = _merge([df, b])
+                    log.info("repair %s: filled %s from tick archive (%d -> %d bars)", s, day.date(), have, len(b))
 
     async def run_repair(self):
         while True:
@@ -189,25 +204,43 @@ def _from_research(files):
 
 
 def _archive_day(s, day):
+    """One day of Bybit tick archive -> 1m bars with taker buy volume.
+    Streams to disk and aggregates in chunks so memory stays ~100MB even for BTC (~3M trades/day)."""
+    import tempfile, os
     url = f"https://public.bybit.com/trading/{s}/{s}{day}.csv.gz"
+    fd, path = tempfile.mkstemp(suffix=".csv.gz", dir=C.DATA_DIR); os.close(fd)
     try:
-        r = httpx.get(url, timeout=600, follow_redirects=True)
-        if r.status_code != 200:
-            return None
-        t = pl.read_csv(io.BytesIO(r.content), columns=["timestamp", "side", "size", "price"])
+        with httpx.stream("GET", url, timeout=600, follow_redirects=True) as r:
+            if r.status_code != 200:
+                return None
+            with open(path, "wb") as f:
+                for chunk in r.iter_bytes(1 << 20):
+                    f.write(chunk)
+        parts = []
+        for ch in pd.read_csv(path, usecols=["timestamp", "side", "size", "price"], chunksize=500_000):
+            ch["t"] = pd.to_datetime((ch.timestamp * 1000).astype("int64") // 60000 * 60000, unit="ms")
+            ch["notional"] = ch["size"] * ch["price"]
+            ch["buy"] = ch["size"].where(ch.side == "Buy", 0.0)
+            g = ch.groupby("t", sort=True)
+            parts.append(pd.DataFrame({"open": g.price.first(), "high": g.price.max(), "low": g.price.min(),
+                                       "close": g.price.last(), "volume": g["size"].sum(), "quote_vol": g.notional.sum(),
+                                       "buy_vol": g.buy.sum(), "trades": g.size()}))
+            del ch, g
     except Exception as e:
         log.warning("archive %s %s: %s", s, day, e)
         return None
-    t = t.with_columns((pl.col("timestamp") * 1000).cast(pl.Int64).alias("ms"),
-                       (pl.col("size") * pl.col("price")).alias("notional")
-                       ).with_columns((pl.col("ms") // 60000 * 60000).alias("t"))
-    b = (t.sort("ms").group_by("t", maintain_order=True).agg(
-        pl.col("price").first().alias("open"), pl.col("price").max().alias("high"),
-        pl.col("price").min().alias("low"), pl.col("price").last().alias("close"),
-        pl.col("size").sum().alias("volume"), pl.col("notional").sum().alias("quote_vol"),
-        pl.col("size").filter(pl.col("side") == "Buy").sum().alias("buy_vol"), pl.len().alias("trades"))).to_pandas()
-    b.index = pd.to_datetime(b.pop("t"), unit="ms")
-    return b
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    if not parts:
+        return None
+    a = pd.concat(parts)                      # a minute can straddle two chunks -> combine in file order
+    g = a.groupby(level=0, sort=True)
+    return pd.DataFrame({"open": g.open.first(), "high": g.high.max(), "low": g.low.min(), "close": g.close.last(),
+                         "volume": g.volume.sum(), "quote_vol": g.quote_vol.sum(), "buy_vol": g.buy_vol.sum(),
+                         "trades": g.trades.sum()}).astype(float)
 
 
 def _rest_fill(s, df, start, now, client=None):
