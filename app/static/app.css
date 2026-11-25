@@ -95,3 +95,5 @@ input{width:100%;padding:12px;border-radius:12px;border:1px solid var(--line);ba
 .toast{position:fixed;bottom:calc(80px + var(--safe-b));left:16px;right:16px;z-index:30;background:#1f2937;
   border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center}
 .loading{padding:40px 16px;text-align:center;color:var(--muted)}
+.chip.wrap{white-space:normal;max-width:100%;overflow-wrap:anywhere}
+main{overflow-x:hidden}

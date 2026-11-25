@@ -13,6 +13,7 @@ from .brain import Brain
 from .broker_live import LiveBroker
 from .regime import regime_detail
 from . import backup
+from .scanner import Scanner, STATE as SCAN
 from research.bt.data import resample
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -49,6 +50,7 @@ async def lifespan(app):
         b.catch_up()                     # settle trades that hit SL/TP while the app was off
     tasks += [asyncio.create_task(brain.run()), asyncio.create_task(_periodic()), asyncio.create_task(_live_sync()),
               asyncio.create_task(backup.loop(store))]
+    S["scanner"] = Scanner(); tasks.append(asyncio.create_task(S["scanner"].loop()))
     log.info("ready on http://%s:%s", C.HOST, C.PORT)
     yield
     for t in tasks:
@@ -214,6 +216,16 @@ def decide(pid: int, action: str):
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True}
+
+
+@app.get("/api/scanner")
+def scanner(limit: int = 40):
+    rows = SCAN["rows"]
+    return _clean(dict(updated=SCAN["updated"], top=rows[:limit], new_listings=SCAN["new_listings"][:20],
+                       trending=SCAN["trending"], announcements=SCAN["announcements"], sources=SCAN["sources"],
+                       volume_surges=sorted([r for r in rows if r["turnover"] > 2e6], key=lambda r: -r["turn_x"])[:10],
+                       oi_surges=sorted([r for r in rows if r["turnover"] > 2e6], key=lambda r: -r["oi_chg"])[:10],
+                       total=len(rows)))
 
 
 @app.get("/api/events")

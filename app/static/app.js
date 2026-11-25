@@ -188,6 +188,47 @@ async function updateChart(first = false) {
 }
 function showTradeOnChart(id, sym) { STATE.chartSym = sym; STATE.chartTrade = id; closeSheet(); setTab("chart"); }
 
+// ---------- scanner ----------
+const fmtM = v => v == null ? "—" : v >= 1e9 ? "$" + (v / 1e9).toFixed(1) + "B" : v >= 1e6 ? "$" + (v / 1e6).toFixed(1) + "M" : "$" + Math.round(v / 1e3) + "K";
+const bybitLink = s => `https://www.bybit.com/trade/usdt/${encodeURIComponent(s)}`;
+function scanRow(r) {
+  const col = r.score >= 60 ? "var(--green)" : r.score >= 35 ? "var(--amber)" : "var(--muted)";
+  return `<div class="trade">
+    <div class="row"><div><b>${esc(r.base)}</b> <span class="muted tiny">${esc(r.symbol)}</span>
+      ${r.trending ? `<span class="chip warn">🔥 טרנד #${r.trending}</span>` : ""}${r.reddit ? `<span class="chip">Reddit ×${r.reddit}</span>` : ""}</div>
+      <div style="text-align:left"><b class="num" style="color:${col}">${r.score}</b><div class="tiny muted">ציון</div></div></div>
+    <div class="bar"><i style="width:${r.score}%;background:${col}"></i></div>
+    <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi"><div class="l">מחיר</div><div class="v num small">${fmtPx(r.price)}</div></div>
+      <div class="kpi"><div class="l">24 שעות</div><div class="v num small ${cls(r.chg24)}">${pct(r.chg24)}</div></div>
+      <div class="kpi"><div class="l">נפח 24ש׳</div><div class="v num small">${fmtM(r.turnover)}</div><div class="tiny muted num">×${(r.turn_x || 1).toFixed(1)}</div></div>
+      <div class="kpi"><div class="l">OI</div><div class="v num small">${fmtM(r.oi)}</div><div class="tiny num ${cls(r.oi_chg)}">${pct(r.oi_chg)}</div></div>
+    </div>
+    ${r.flags.length ? `<div style="margin-top:6px">${r.flags.map(f => `<span class="chip wrap fail" style="margin:2px">⚠️ ${esc(f)}</span>`).join("")}</div>` : ""}
+    <div class="row tiny muted" style="margin-top:6px"><span>מימון <span class="num">${(r.funding ?? 0).toFixed(3)}%</span></span>
+      <a href="${bybitLink(r.symbol)}" target="_blank" rel="noopener" style="color:#93c5fd">פתח ב-Bybit ↗</a></div>
+  </div>`;
+}
+async function renderScan() {
+  const d = await api("/api/scanner");
+  if (!d.updated) return `<div class="loading">🔭 הסורק אוסף נתונים מכל המטבעות ב-Bybit…<br><span class="small">הסריקה הראשונה מוכנה בתוך כ-2 דקות מהפעלת השרת</span></div>`;
+  const sec = (title, list, empty) => `<h2>${title}</h2>` + (list.length ? list.map(scanRow).join("") : `<div class="muted small">${empty}</div>`);
+  const trend = d.trending.map(t => `<div class="trade row"><div><b>#${t.rank} ${esc(t.symbol)}</b> <span class="muted tiny">${esc(t.name)}</span>
+      ${t.on_bybit ? '<span class="chip pass">נסחר ב-Bybit</span>' : '<span class="chip">לא ב-Bybit</span>'}</div>
+      <div class="num small ${cls(t.chg24)}">${t.chg24 == null ? "" : pct(t.chg24)}</div></div>`).join("");
+  const ann = d.announcements.map(a => `<div class="trade"><a href="${esc(a.url)}" target="_blank" rel="noopener" style="color:#93c5fd">${esc(a.title)}</a><div class="tiny muted">${when(a.ts)}</div></div>`).join("");
+  const src = Object.entries(d.sources).map(([k, v]) => `<span class="chip wrap ${v.ok ? "pass" : "fail"}" style="margin:2px">${esc({ bybit_ws: "Bybit חי", bybit_list: "רשימת Bybit", bybit_rest: "Bybit הודעות", coingecko: "CoinGecko", reddit: "Reddit" }[k] || k)}: ${esc(v.note)}</span>`).join("");
+  return `<div class="card ins high small">⚠️ הסורק <b>מציג ומתריע בלבד ולא סוחר</b>. מטבעות חדשים ו"ג'מים" הם המסוכנים ביותר בקריפטו — רובם יורדים וחלקם הונאות. הבוטים נבדקו רק על BTC/ETH/SOL.</div>
+    <div class="tiny muted">עודכן ${when(d.updated)} · ${d.total} מטבעות נסרקו</div>
+    ${sec("🏆 הציון הגבוה ביותר", d.top.slice(0, 12), "—")}
+    <h2>🔥 טרנדים ברשתות (CoinGecko — הכי מחופשים)</h2>${trend || '<div class="muted small">—</div>'}
+    <h2>📣 הנפקות קרובות (הודעות רשמיות של Bybit)</h2>${ann || '<div class="muted small">לא זמין מהשרת הזמני (חסום בארה"ב) — יעבוד מהמחשב שלך בישראל.</div>'}
+    ${sec("🆕 חדשים ב-Bybit (30 יום אחרונים)", d.new_listings, "עדיין לא זוהו — רשימה זו מתמלאת ממטבעות שמתווספים מעכשיו (מהמחשב בישראל: גם לפי תאריך ההשקה הרשמי).")}
+    ${sec("⚡ קפיצות נפח מסחר", d.volume_surges.filter(r => r.turn_x > 1.3), "אין כרגע (ההשוואה מצטברת לאורך היום הראשון).")}
+    ${sec("💰 כסף חדש נכנס (עלייה בחוזים פתוחים)", d.oi_surges.filter(r => r.oi_chg > 5), "אין כרגע.")}
+    <h2>מקורות</h2><div>${src}</div>`;
+}
+
 // ---------- AI ----------
 async function renderAI() {
   const a = await api("/api/ai"); STATE.ai = a;
@@ -241,7 +282,7 @@ async function render() {
   const v = $("#view");
   if (!STATE.ov) { v.innerHTML = '<div class="loading">טוען…</div>'; return; }
   try {
-    const html = { bots: () => renderBots(), trades: renderTrades, chart: renderChart, ai: renderAI, more: renderMore }[STATE.tab];
+    const html = { bots: () => renderBots(), trades: renderTrades, chart: renderChart, scan: renderScan, ai: renderAI, more: renderMore }[STATE.tab];
     v.innerHTML = await html();
     if (STATE.tab === "chart") await drawChart(); else if (chart) { chart.remove(); chart = null; series = null; }
   } catch (e) { v.innerHTML = `<div class="loading">שגיאה: ${esc(e.message)}</div>`; }
