@@ -64,3 +64,16 @@ def test_bar_close_trigger_only_on_tf_boundary():
     assert calls == []
     asyncio.run(b.on_bar("BTCUSDT", pd.Timestamp("2026-01-10 10:59")))
     assert calls == [pd.Timestamp("2026-01-10 10:59")]
+
+
+def test_incomplete_bar_is_not_evaluated():
+    b = mk("bot3")
+    st = b.store
+    st.repair = lambda hours=6: None                       # REST unavailable
+    st.bars["BTCUSDT"] = st.bars["BTCUSDT"].drop(pd.date_range("2026-01-10 10:00", "2026-01-10 10:40", freq="1min"))
+    calls = []
+    b.adapter.evaluate = lambda df: calls.append(1) or None
+    asyncio.run(b.on_bar("BTCUSDT", pd.Timestamp("2026-01-10 10:59")))
+    assert calls == [] and b.last_eval["BTCUSDT"]["status"] == "missing_data"
+    asyncio.run(b.on_bar("BTCUSDT", pd.Timestamp("2026-01-10 11:59")))   # next, complete bar -> evaluated
+    assert calls == [1]

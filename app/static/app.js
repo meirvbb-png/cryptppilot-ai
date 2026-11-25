@@ -88,7 +88,7 @@ function renderBots() {
 async function openBot(id) {
   const b = await api(`/api/bots/${id}`);
   const be = b.bench, liveR = b.closed ? Math.round(100 * b.wins / b.closed) : null;
-  const evals = Object.entries(b.last_eval || {}).map(([s, e]) => `<tr><td>${SYM[s]}</td><td>${e.status === "warmup" ? "מתחמם (חסרים נתונים)" : e.sig > 0 ? '<span class="up">איתות לונג</span>' : e.sig < 0 ? '<span class="down">איתות שורט</span>' : "אין איתות"}</td><td class="num tiny">${esc(e.bar_time || "")}</td></tr>`).join("");
+  const evals = Object.entries(b.last_eval || {}).map(([s, e]) => `<tr><td>${SYM[s]}</td><td>${e.status === "warmup" ? "מתחמם (חסרים נתונים)" : e.status === "missing_data" ? '<span class="down">נר חסר נתונים - דולג</span>' : e.sig > 0 ? '<span class="up">איתות לונג</span>' : e.sig < 0 ? '<span class="down">איתות שורט</span>' : "אין איתות"}</td><td class="num tiny">${esc(e.bar_time || "")}</td></tr>`).join("");
   const blocked = (b.settings.blocked_regimes || []).join(", ");
   $("#sheetBody").innerHTML = `<div class="grab"></div>
     <div class="row"><div class="bot-name">${esc(b.name)}</div>${modeChip(b.mode, b.mode_he)}</div>

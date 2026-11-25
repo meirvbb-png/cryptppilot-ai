@@ -79,6 +79,13 @@ class Bot:
         closed_end = minute_ts + pd.Timedelta("1min")
         if (closed_end.value // 60_000_000_000) % tfm != 0:
             return
+        bar_start = closed_end - pd.Timedelta(minutes=tfm)
+        if not self._bar_complete(symbol, bar_start, minute_ts, tfm):
+            await asyncio.to_thread(self.store.repair, 6)          # try to fill the gap from Bybit REST now
+            if not self._bar_complete(symbol, bar_start, minute_ts, tfm):
+                db.event(self.id, f"{symbol}: נר {bar_start:%H:%M} חסר נתונים (ניתוק/שינה) - לא נבדק, למניעת איתות שגוי", "warn")
+                self.last_eval[symbol] = dict(status="missing_data", ts=time.time())
+                return
         df = self.store.frame(symbol).loc[:minute_ts]
         corr = None
         if symbol != "BTCUSDT" and self.spec["strategy"] == "FreqAI_LGBM_Clf":
@@ -96,6 +103,10 @@ class Bot:
             return
         self.last_eval[symbol] = dict(r, ts=time.time())
         self.act(symbol, r)
+
+    def _bar_complete(self, symbol, start, end, tfm):
+        n = len(self.store.frame(symbol).loc[start:end])
+        return n >= 0.9 * tfm
 
     def act(self, symbol, r):
         price = self.store.last.get(symbol, (0, r["price"]))[1]
