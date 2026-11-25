@@ -150,7 +150,7 @@ async function renderSignals() {
   const tg = d.telegram.connected ? `<span class="chip pass">🔔 טלגרם מחובר (@${esc(d.telegram.username)})</span>`
     : `<span class="chip">🔕 טלגרם לא מחובר · <a href="#" onclick="setTab('more');return false" style="color:#93c5fd">חבר</a></span>`;
   return `<div class="card small">כל איתות מגיע עם כניסה, סטופ ויעד, וגודל מוצע לתיק דמו של $500 בסיכון 1%. אפשר לפתוח אותו ידנית בחשבון הדמו של Bybit.
-      <div style="margin-top:6px">${tg}</div>
+      ${d.telegram.connected ? `<div style="margin-top:6px">${tg}</div>` : ""}
       <div class="kpis"><div class="kpi"><div class="l">פעילים</div><div class="v num">${sm.active}</div></div>
       <div class="kpi"><div class="l">הסתיימו</div><div class="v num">${sm.total}</div><div class="tiny muted">הצלחה ${sm.win_pct == null ? "—" : sm.win_pct + "%"}</div></div>
       <div class="kpi"><div class="l">ממוצע</div><div class="v num ${cls(sm.avg_r)}">${sm.avg_r == null ? "—" : sm.avg_r + "R"}</div></div></div></div>` +
@@ -303,7 +303,7 @@ async function renderMore() {
       <div>מסחר חי: <span class="muted">${esc(ov.live.reason)}</span></div>
       <div>גיבוי: ${ov.backup?.enabled ? (ov.backup.last_ok ? '<span class="up">פעיל · אחרון ' + when(ov.backup.last_ok) + '</span>' : '<span class="muted">פעיל · טרם בוצע</span>') + (ov.backup.error ? ' <span class="down">' + esc(ov.backup.error) + '</span>' : '') : '<span class="muted">לא מוגדר</span>'}</div>
       <div class="tiny muted" style="margin-top:6px">כל הבוטים במצב דמו: עסקאות וירטואליות על מחירי Bybit אמיתיים, עם עמלות והחלקה כמו בבדיקות.</div></div>
-    <h2>🔔 התראות טלגרם</h2><div class="card small">
+    <details class="card small"><summary class="muted">🔔 התראות טלגרם (אופציונלי)</summary>
       <div id="tgStatus" class="muted">בודק…</div>
       <ol style="padding-inline-start:18px;margin:8px 0">
         <li>בטלגרם, פתח את <a href="https://t.me/BotFather" target="_blank" rel="noopener" style="color:#93c5fd">@BotFather</a> ושלח <b>/newbot</b>.</li>
@@ -314,7 +314,7 @@ async function renderMore() {
       </ol>
       <input id="tgTok" placeholder="הטוקן מ-BotFather" autocomplete="off">
       <div class="btns"><button class="btn" onclick="tgConnect()">חבר</button><button class="btn ghost" onclick="tgTest()">שלח בדיקה</button></div>
-    </div>
+    </details>
     <h2>קוד גישה</h2><div class="card"><input id="tok" placeholder="APP_TOKEN (אם הוגדר)" value="${esc(token())}"><div class="btns"><button class="btn" onclick="saveTok()">שמור</button></div></div>
     <h2>יומן פעילות</h2><div class="card">${ev.map(e => `<div class="tiny" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="muted">${when(e.ts)} · ${esc(e.bot_id || "")}</span><br>${esc(e.text)}</div>`).join("") || '<div class="muted small">—</div>'}</div>`;
 }
