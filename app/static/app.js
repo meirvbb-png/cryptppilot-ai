@@ -226,6 +226,7 @@ async function renderMore() {
   return `<h2 style="margin-top:4px">חיבור</h2><div class="card small">
       <div>נתוני שוק: ${ov.status.ws === "connected" ? '<span class="up">מחובר לזרם החי של Bybit</span>' : esc(ov.status.ws)}</div>
       <div>מסחר חי: <span class="muted">${esc(ov.live.reason)}</span></div>
+      <div>גיבוי: ${ov.backup?.enabled ? (ov.backup.last_ok ? '<span class="up">פעיל · אחרון ' + when(ov.backup.last_ok) + '</span>' : '<span class="muted">פעיל · טרם בוצע</span>') + (ov.backup.error ? ' <span class="down">' + esc(ov.backup.error) + '</span>' : '') : '<span class="muted">לא מוגדר</span>'}</div>
       <div class="tiny muted" style="margin-top:6px">כל הבוטים במצב דמו: עסקאות וירטואליות על מחירי Bybit אמיתיים, עם עמלות והחלקה כמו בבדיקות.</div></div>
     <h2>קוד גישה</h2><div class="card"><input id="tok" placeholder="APP_TOKEN (אם הוגדר)" value="${esc(token())}"><div class="btns"><button class="btn" onclick="saveTok()">שמור</button></div></div>
     <h2>יומן פעילות</h2><div class="card">${ev.map(e => `<div class="tiny" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="muted">${when(e.ts)} · ${esc(e.bot_id || "")}</span><br>${esc(e.text)}</div>`).join("") || '<div class="muted small">—</div>'}</div>`;

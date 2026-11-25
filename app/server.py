@@ -12,6 +12,7 @@ from .bots import Engine, MODE_HE
 from .brain import Brain
 from .broker_live import LiveBroker
 from .regime import regime_detail
+from . import backup
 from research.bt.data import resample
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -44,12 +45,14 @@ async def lifespan(app):
     engine = Engine(store, live); S["engine"] = engine
     brain = Brain(store, engine); S["brain"] = brain
     await engine.warm_start()
-    tasks += [asyncio.create_task(brain.run()), asyncio.create_task(_periodic()), asyncio.create_task(_live_sync())]
+    tasks += [asyncio.create_task(brain.run()), asyncio.create_task(_periodic()), asyncio.create_task(_live_sync()),
+              asyncio.create_task(backup.loop(store))]
     log.info("ready on http://%s:%s", C.HOST, C.PORT)
     yield
     for t in tasks:
         t.cancel()
     store.save()
+    await asyncio.to_thread(backup.upload)
 
 
 app = FastAPI(lifespan=lifespan, title="CryptoPilot Bots")
@@ -106,6 +109,7 @@ def overview():
     prices = {s: st.last.get(s, (None, float(st.bars[s].close.iloc[-1]) if len(st.bars[s]) else None))[1] for s in C.SYMBOLS}
     tot_alloc = sum(b["allocation"] for b in bots); tot_eq = sum(b["equity"] for b in bots)
     return _clean(dict(bots=bots, prices=prices, status=st.status, live=dict(ok=S["live"].ok, reason=S["live"].reason),
+                       backup=backup.STATUS,
                        total=dict(allocation=tot_alloc, equity=tot_eq, pnl=tot_eq - tot_alloc),
                        regimes=S["brain"].state.get("regimes", {}), server_time=time.time()))
 

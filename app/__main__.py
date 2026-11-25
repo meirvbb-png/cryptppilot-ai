@@ -13,6 +13,8 @@ def lan_ip():
 
 
 if __name__ == "__main__":
+    from . import backup
+    backup.restore()                     # before the DB is opened (no-op without HF_TOKEN/HF_BACKUP_REPO)
     print("\n" + "=" * 60)
     print(f"  פתח בטלפון (באותה רשת Wi-Fi):  http://{lan_ip()}:{C.PORT}")
     print(f"  במחשב הזה:                     http://localhost:{C.PORT}")
