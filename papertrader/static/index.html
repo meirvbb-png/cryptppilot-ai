@@ -77,6 +77,7 @@ nav button.on{color:#fff;border-top:2px solid var(--b)}
 <section id="t-pos"><div id="posList"></div></section>
 <section id="t-hist">
   <div class="card"><div class="row"><b>ביצועים</b><span class="mut" id="hMeta"></span></div><div id="curve" style="height:120px"></div></div>
+  <div id="statsBox"></div>
   <div id="histList"></div>
   <button class="act danger" onclick="resetAcc()">איפוס חשבון דמו ל-$450</button>
 </section>
@@ -231,6 +232,7 @@ async function loadSignals(){
     $('sigMeta').textContent=d.updated?`עודכן ${new Date(d.updated*1000).toLocaleTimeString('he-IL')} · ${SIGS.length} איתותים (מתחדש כל 2 דק׳)`:'מחשב איתותים ראשונים…';
     $('sigList').innerHTML=SIGS.length?SIGS.map((s,i)=>`
     <div class="card"><div class="row"><div><span class="tag ${s.side}">${s.side}</span> <b>${s.symbol.split(':')[0]}</b> <span class="mut">${s.exchange}</span></div><span class="mut">ביטחון ${s.confidence}%</span></div>
+    ${s.strategy_name?`<div style="margin:6px 0 0;font-size:12px"><span class="tag" style="background:#1b2230;color:#c9d1e0">${s.strategy_name}</span> ${s.experimental?'<span class="tag" style="background:#3a2a10;color:#f5b942">ניסיוני</span>':''} <span class="mut">${s.bt||''}</span></div>`:''}
     <div class="lv"><div>Entry<b>${px(s.entry)}</b></div><div>SL<b>${px(s.sl)}</b></div><div>TP1<b>${px(s.tp1)}</b></div><div>TP2<b>${px(s.tp2)}</b></div></div>
     <div class="mut" style="font-size:12px">סיכון ${fmt(s.risk_pct*100,2)}% ($${fmt(s.risk_usd)}) · מינוף ${s.leverage}x · מרג'ין $${fmt(s.margin)}</div>
     <details><summary>דיון הסוכנים</summary>${s.discussion.map(x=>`<p><b>${x.agent}:</b> ${x.text}</p>`).join('')}</details>
@@ -241,7 +243,7 @@ async function loadSignals(){
 function showSig(i){lastSig=SIGS[i];cur.ex=lastSig.exchange;cur.sym=lastSig.symbol;$('exSel').value=cur.ex;$('symSel').value=cur.sym;loadChart(true);window.scrollTo({top:0,behavior:'smooth'})}
 
 /* trade form */
-let fSide='LONG',fType='market';
+let fSide='LONG',fType='market',curStrat='manual';
 function seg(id,cb){$(id).onclick=e=>{const v=e.target.dataset.v;if(!v)return;[...$(id).children].forEach(b=>b.classList.toggle('on',b===e.target));cb(v)}}
 seg('fSide',v=>fSide=v);seg('fType',v=>{fType=v;$('limBox').style.display=v==='limit'?'block':'none'});
 function setSeg(id,v){[...$(id).children].forEach(b=>b.classList.toggle('on',b.dataset.v===v))}
@@ -252,20 +254,27 @@ function openTrade(i){
   $('fEx').value=s?s.exchange:cur.ex;$('fSym').value=s?s.symbol:cur.sym;
   fSide=s?s.side:'LONG';setSeg('fSide',fSide);fType='market';setSeg('fType','market');$('limBox').style.display='none';
   $('fMargin').value=s?s.margin.toFixed(2):'';$('fLev').value=s?s.leverage:5;
-  $('fSl').value=s?+s.sl.toPrecision(7):'';$('fTp1').value=s?+s.tp1.toPrecision(7):'';$('fTp2').value=s?+s.tp2.toPrecision(7):'';
+  $('fSl').value=s?+s.sl.toPrecision(7):'';$('fTp1').value=s?+s.tp1.toPrecision(7):'';$('fTp2').value=s&&s.tp2?+s.tp2.toPrecision(7):'';curStrat=s?(s.strategy||'signal'):'manual';
   $('modal').classList.add('on');
 }
 function closeM(){$('modal').classList.remove('on')}
 async function submitTrade(){
   const n=id=>$(id).value===''?null:parseFloat($(id).value);
-  const body={exchange:$('fEx').value,symbol:$('fSym').value,side:fSide,margin:n('fMargin'),leverage:n('fLev'),sl:n('fSl'),tp1:n('fTp1'),tp2:n('fTp2'),order_type:fType,limit_price:n('fLim'),source:'form'};
+  const body={exchange:$('fEx').value,symbol:$('fSym').value,side:fSide,margin:n('fMargin'),leverage:n('fLev'),sl:n('fSl'),tp1:n('fTp1'),tp2:n('fTp2'),order_type:fType,limit_price:n('fLim'),source:curStrat};
   const r=await fetch('/api/trade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!r.ok){const d=await r.json().catch(()=>({}));$('err').textContent=typeof d.detail==='string'?d.detail:'פרטים לא תקינים';return}
   closeM();await refresh();document.querySelector('nav [data-t=pos]').click();
 }
 
 /* history */
-async function loadHist(){
+async function loadStats(){
+  try{
+    const r=await fetch('/api/stats');if(!r.ok)return;const d=await r.json();
+    $('statsBox').innerHTML=d.stats.length?`<div class="card"><b>ביצועים לפי אסטרטגיה (עסקאות דמו חיות)</b><div class="mut" style="font-size:12px;margin:2px 0 6px">R = רווח ביחס לסיכון בעסקה. מדגם קטן אינו מוכיח כלום – מתחילים להסיק מ-30+ עסקאות.</div>
+    ${d.stats.map(s=>`<div class="row" style="padding:5px 0;border-top:1px solid #222a3a"><span>${s.strategy}</span><span class="mut">${s.n} עסקאות · ${s.win_rate==null?'—':s.win_rate.toFixed(0)+'%'} · ${s.avg_r==null?'—':s.avg_r.toFixed(2)+'R'}</span><b class="${cls(s.pnl)}">${money(s.pnl)}</b></div>`).join('')}</div>`:'';
+  }catch(e){}
+}
+async function loadHist(){loadStats();
   const d=await (await fetch('/api/history')).json();
   const t=d.trades.filter(x=>x.status==='closed');
   const tot=t.reduce((s,x)=>s+x.realized,0);
