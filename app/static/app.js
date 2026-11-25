@@ -1,7 +1,7 @@
 "use strict";
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const STATE = { tab: "bots", ov: null, tradesSeg: "open", chartSym: "BTCUSDT", chartTf: "1h", chartTrade: null, ai: null };
+const STATE = { tab: "bots", ov: null, tradesSeg: "signals", chartSym: "BTCUSDT", chartTf: "1h", chartTrade: null, ai: null };
 const SYM = { BTCUSDT: "BTC", ETHUSDT: "ETH", SOLUSDT: "SOL" };
 const REASON = { tp: "טייק-פרופיט", sl: "סטופ-לוס", signal: "איתות יציאה", time: "זמן מקסימלי", manual: "סגירה ידנית" };
 
@@ -126,10 +126,44 @@ async function setMode(id, mode) {
 async function pauseBot(id, paused) { await api(`/api/bots/${id}/pause`, { method: "POST", body: JSON.stringify({ paused }) }); openBot(id); refresh(); }
 async function closeTrade(tid) { if (!confirm("לסגור את העסקה במחיר השוק?")) return; await api(`/api/trades/${tid}/close`, { method: "POST" }); toast("העסקה נסגרה"); closeSheet(); refresh(); }
 
+function signalCard(s) {
+  const st = { active: ["פעיל", "warn"], tp: ["✅ הגיע ליעד", "pass"], sl: ["❌ נגע בסטופ", "fail"], expired: ["⌛ פג תוקף", ""] }[s.status];
+  const r = s.status === "active" ? s.live_r : s.result_r;
+  return `<div class="trade">
+    <div class="row wrap"><div><b>${esc(s.bot_name)}</b> ${verdictChip(s.verdict)}<br>
+      <b>${SYM[s.symbol] || s.symbol}</b> ${sideChip(s.side)} <span class="chip ${st[1]}">${st[0]}</span></div>
+      <div style="text-align:left"><div class="num ${cls(r)}" style="font-weight:700">${r == null ? "—" : (r > 0 ? "+" : "") + r.toFixed(2) + "R"}</div>
+      <div class="tiny muted">${s.status === "active" ? "כרגע" : "תוצאה"}</div></div></div>
+    <div class="levels">
+      <div class="lv e"><div class="l">כניסה</div><div class="v num">${fmtPx(s.entry, s.symbol)}</div></div>
+      <div class="lv s"><div class="l">סטופ-לוס</div><div class="v num">${fmtPx(s.sl, s.symbol)}</div></div>
+      <div class="lv t"><div class="l">טייק-פרופיט</div><div class="v num">${fmtPx(s.tp, s.symbol)}</div></div>
+    </div>
+    <div class="small" style="margin-top:6px">גודל מוצע לתיק $500 (סיכון <span class="num">$${s.risk_usd}</span>): <b class="num">${s.qty}</b> ${SYM[s.symbol] || ""} · שווי <span class="num">${usd(s.notional)}</span> · <span class="num">${s.leverage.toFixed(1)}x</span> · יחס <span class="num">1:${s.rr.toFixed(1)}</span></div>
+    <div class="row tiny muted" style="margin-top:4px"><span>${when(s.ts)}${s.status === "active" ? " · מחיר עכשיו <span class='num'>" + fmtPx(s.price, s.symbol) + "</span>" : " · נסגר <span class='num'>" + fmtPx(s.close_px, s.symbol) + "</span>"}</span>
+      <span>${s.status === "active" ? "בתוקף עד " + when(s.expires_ts) : when(s.close_ts)}</span></div>
+  </div>`;
+}
+
+async function renderSignals() {
+  const d = await api("/api/signals"); const sm = d.summary;
+  const tg = d.telegram.connected ? `<span class="chip pass">🔔 טלגרם מחובר (@${esc(d.telegram.username)})</span>`
+    : `<span class="chip">🔕 טלגרם לא מחובר · <a href="#" onclick="setTab('more');return false" style="color:#93c5fd">חבר</a></span>`;
+  return `<div class="card small">כל איתות מגיע עם כניסה, סטופ ויעד, וגודל מוצע לתיק דמו של $500 בסיכון 1%. אפשר לפתוח אותו ידנית בחשבון הדמו של Bybit.
+      <div style="margin-top:6px">${tg}</div>
+      <div class="kpis"><div class="kpi"><div class="l">פעילים</div><div class="v num">${sm.active}</div></div>
+      <div class="kpi"><div class="l">הסתיימו</div><div class="v num">${sm.total}</div><div class="tiny muted">הצלחה ${sm.win_pct == null ? "—" : sm.win_pct + "%"}</div></div>
+      <div class="kpi"><div class="l">ממוצע</div><div class="v num ${cls(sm.avg_r)}">${sm.avg_r == null ? "—" : sm.avg_r + "R"}</div></div></div></div>` +
+    (d.rows.length ? d.rows.map(signalCard).join("") : `<div class="empty">עדיין אין איתותים.<br>הבוטים בודקים את BTC/ETH/SOL בכל סגירת נר (שעה / 4 שעות). צפי: בערך 1–3 איתותים ביום.</div>`);
+}
+
 async function renderTrades() {
+  const seg = `<div class="seg"><button class="${STATE.tradesSeg === "signals" ? "on" : ""}" onclick="STATE.tradesSeg='signals';render()">📣 איתותים</button>
+    <button class="${STATE.tradesSeg === "open" ? "on" : ""}" onclick="STATE.tradesSeg='open';render()">פתוחות</button>
+    <button class="${STATE.tradesSeg === "closed" ? "on" : ""}" onclick="STATE.tradesSeg='closed';render()">סגורות</button></div>`;
+  if (STATE.tradesSeg === "signals") return seg + await renderSignals();
   const rows = await api(`/api/trades?status=${STATE.tradesSeg}`);
-  return `<div class="seg"><button class="${STATE.tradesSeg === "open" ? "on" : ""}" onclick="STATE.tradesSeg='open';render()">פתוחות</button>
-    <button class="${STATE.tradesSeg === "closed" ? "on" : ""}" onclick="STATE.tradesSeg='closed';render()">סגורות</button></div>` +
+  return seg +
     (rows.length ? rows.map(t => tradeCard(t)).join("") : `<div class="empty">${STATE.tradesSeg === "open" ? "אין עסקאות פתוחות כרגע.<br>הבוטים פועלים על נרות 1h/4h ופותחים עסקה רק כשיש איתות." : "עדיין אין עסקאות סגורות."}</div>`);
 }
 
@@ -269,9 +303,34 @@ async function renderMore() {
       <div>מסחר חי: <span class="muted">${esc(ov.live.reason)}</span></div>
       <div>גיבוי: ${ov.backup?.enabled ? (ov.backup.last_ok ? '<span class="up">פעיל · אחרון ' + when(ov.backup.last_ok) + '</span>' : '<span class="muted">פעיל · טרם בוצע</span>') + (ov.backup.error ? ' <span class="down">' + esc(ov.backup.error) + '</span>' : '') : '<span class="muted">לא מוגדר</span>'}</div>
       <div class="tiny muted" style="margin-top:6px">כל הבוטים במצב דמו: עסקאות וירטואליות על מחירי Bybit אמיתיים, עם עמלות והחלקה כמו בבדיקות.</div></div>
+    <h2>🔔 התראות טלגרם</h2><div class="card small">
+      <div id="tgStatus" class="muted">בודק…</div>
+      <ol style="padding-inline-start:18px;margin:8px 0">
+        <li>בטלגרם, פתח את <a href="https://t.me/BotFather" target="_blank" rel="noopener" style="color:#93c5fd">@BotFather</a> ושלח <b>/newbot</b>.</li>
+        <li>בחר שם (למשל: הבוטים שלי) ושם משתמש שמסתיים ב-bot.</li>
+        <li>BotFather ישלח לך <b>טוקן</b> ארוך. העתק אותו.</li>
+        <li>פתח את הבוט החדש שלך (הקישור שקיבלת) ולחץ <b>Start</b>.</li>
+        <li>הדבק כאן את הטוקן ולחץ "חבר".</li>
+      </ol>
+      <input id="tgTok" placeholder="הטוקן מ-BotFather" autocomplete="off">
+      <div class="btns"><button class="btn" onclick="tgConnect()">חבר</button><button class="btn ghost" onclick="tgTest()">שלח בדיקה</button></div>
+    </div>
     <h2>קוד גישה</h2><div class="card"><input id="tok" placeholder="APP_TOKEN (אם הוגדר)" value="${esc(token())}"><div class="btns"><button class="btn" onclick="saveTok()">שמור</button></div></div>
     <h2>יומן פעילות</h2><div class="card">${ev.map(e => `<div class="tiny" style="padding:5px 0;border-bottom:1px solid var(--line)"><span class="muted">${when(e.ts)} · ${esc(e.bot_id || "")}</span><br>${esc(e.text)}</div>`).join("") || '<div class="muted small">—</div>'}</div>`;
 }
+async function tgStatus() {
+  try { const d = await api("/api/signals?limit=1"); const el = $("#tgStatus");
+    if (el) el.innerHTML = d.telegram.connected ? `<span class="up">מחובר ל-@${esc(d.telegram.username)}</span> · <a href="#" onclick="tgDisconnect();return false" style="color:#fca5a5">נתק</a>` : "לא מחובר"; } catch {}
+}
+async function tgConnect() {
+  const t = $("#tgTok").value.trim(); if (!t) return toast("הדבק את הטוקן מ-BotFather");
+  toast("מתחבר…");
+  try { const r = await api("/api/telegram", { method: "POST", body: JSON.stringify({ token: t }) }); $("#tgTok").value = ""; toast("✅ מחובר ל-@" + r.username + " — נשלחה הודעת אישור"); tgStatus(); }
+  catch (e) { toast(e.message); }
+}
+async function tgTest() { try { await api("/api/telegram/test", { method: "POST" }); toast("נשלחה הודעת בדיקה לטלגרם"); } catch (e) { toast(e.message); } }
+async function tgDisconnect() { if (!confirm("לנתק את טלגרם?")) return; await api("/api/telegram", { method: "POST", body: JSON.stringify({ disconnect: true }) }); tgStatus(); }
+
 function saveTok() { try { localStorage.setItem("token", $("#tok").value.trim()); } catch {} toast("נשמר"); refresh(); }
 
 // ---------- shell ----------
@@ -284,6 +343,7 @@ async function render() {
   try {
     const html = { bots: () => renderBots(), trades: renderTrades, chart: renderChart, scan: renderScan, ai: renderAI, more: renderMore }[STATE.tab];
     v.innerHTML = await html();
+    if (STATE.tab === "more") tgStatus();
     if (STATE.tab === "chart") await drawChart(); else if (chart) { chart.remove(); chart = null; series = null; }
   } catch (e) { v.innerHTML = `<div class="loading">שגיאה: ${esc(e.message)}</div>`; }
 }
@@ -294,7 +354,7 @@ async function refresh() {
     renderHeader(STATE.ov);
     if (STATE.tab === "bots" && $("#sheet").classList.contains("hidden")) $("#view").innerHTML = renderBots();
     if (STATE.tab === "chart") updateChart();
-    if (STATE.tab === "trades" && STATE.tradesSeg === "open") $("#view").innerHTML = await renderTrades();
+    if (STATE.tab === "trades" && STATE.tradesSeg !== "closed") $("#view").innerHTML = await renderTrades();
     if (!refresh.ai || Date.now() - refresh.ai > 30000) {
       refresh.ai = Date.now();
       const a = await api("/api/ai"); const n = a.proposals.filter(p => p.status === "pending").length;

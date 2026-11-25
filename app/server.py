@@ -12,7 +12,7 @@ from .bots import Engine, MODE_HE
 from .brain import Brain
 from .broker_live import LiveBroker
 from .regime import regime_detail
-from . import backup
+from . import backup, signals
 from .scanner import Scanner, STATE as SCAN
 from research.bt.data import resample
 
@@ -48,6 +48,7 @@ async def lifespan(app):
     await engine.warm_start()
     for b in engine.bots.values():
         b.catch_up()                     # settle trades that hit SL/TP while the app was off
+    signals.catch_up(store)
     tasks += [asyncio.create_task(brain.run()), asyncio.create_task(_periodic()), asyncio.create_task(_live_sync()),
               asyncio.create_task(backup.loop(store))]
     S["scanner"] = Scanner(); tasks.append(asyncio.create_task(S["scanner"].loop()))
@@ -226,6 +227,42 @@ def scanner(limit: int = 40):
                        volume_surges=sorted([r for r in rows if r["turnover"] > 2e6], key=lambda r: -r["turn_x"])[:10],
                        oi_surges=sorted([r for r in rows if r["turnover"] > 2e6], key=lambda r: -r["oi_chg"])[:10],
                        total=len(rows)))
+
+
+@app.get("/api/signals")
+def get_signals(limit: int = 100):
+    rows = db.q("SELECT * FROM signals ORDER BY status='active' DESC, ts DESC LIMIT ?", (limit,))
+    st = S["store"]
+    for r in rows:
+        if r["status"] == "active":
+            px = st.last.get(r["symbol"], (0, r["entry"]))[1]
+            r["price"] = px
+            r["live_r"] = r["side"] * (px - r["entry"]) / abs(r["entry"] - r["sl"]) if r["entry"] != r["sl"] else 0
+    tg = signals.kv_get("telegram") or {}
+    return _clean(dict(rows=rows, summary=signals.summary(),
+                       telegram=dict(connected=bool(tg.get("chat_id")), username=tg.get("username"))))
+
+
+@app.post("/api/telegram")
+async def telegram_setup(request: Request):
+    body = await request.json()
+    if body.get("disconnect"):
+        signals.kv_set("telegram", {}); return {"ok": True}
+    try:
+        user = await asyncio.to_thread(signals.telegram_connect, body.get("token", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception:
+        raise HTTPException(400, "לא הצלחתי להתחבר לטלגרם, נסה שוב")
+    return {"ok": True, "username": user}
+
+
+@app.post("/api/telegram/test")
+def telegram_test():
+    ok = signals.telegram_send("🔔 בדיקה: ההתראות מהבוטים עובדות.")
+    if not ok:
+        raise HTTPException(400, "טלגרם לא מחובר")
+    return {"ok": True}
 
 
 @app.get("/api/events")

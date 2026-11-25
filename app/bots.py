@@ -11,6 +11,7 @@ import pandas as pd
 from . import config as C, db
 from .strategies import BOTS, make_adapter, TF_MIN
 from .regime import regime_of
+from . import signals
 
 log = logging.getLogger("bots")
 LOT = {"BTCUSDT": 0.001, "ETHUSDT": 0.01, "SOLUSDT": 0.1}     # Bybit qtyStep = minOrderQty
@@ -113,6 +114,11 @@ class Bot:
 
     def act(self, symbol, r):
         price = self.store.last.get(symbol, (0, r["price"]))[1]
+        if r["sig"] != 0:
+            try:
+                signals.record(self, symbol, r, price, regime_of(self.store, symbol))
+            except Exception as e:
+                log.warning("signal record %s: %s", symbol, e)
         for t in self.open_trades(symbol):
             if (t["side"] > 0 and r["exit_l"]) or (t["side"] < 0 and r["exit_s"]):
                 self.close(t, price, "signal")
@@ -259,7 +265,9 @@ class Engine:
         self.bots = {b["id"]: Bot(b, store, broker_live) for b in BOTS}
         store.listeners_bar.append(self.on_bar)
         store.listeners_tick.append(self.on_tick)
+        store.listeners_tick.append(signals.on_tick)
         store.listeners_repair.append(lambda: [b.catch_up() for b in self.bots.values()])
+        store.listeners_repair.append(lambda: signals.catch_up(store))
 
     async def on_bar(self, symbol, minute_ts):
         for b in self.bots.values():
