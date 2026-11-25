@@ -1,5 +1,5 @@
 """Run:  python -m app      (listens on 0.0.0.0:8000 by default)"""
-import socket, sys
+import os, socket, sys
 import uvicorn
 from . import config as C
 
@@ -20,6 +20,28 @@ def port_free(port):
             return False
 
 
+_LOCK = None
+
+
+def single_instance():
+    """Hold an OS file lock in the data folder for the life of the process. A second copy on the same data
+    (auto-start + a manual double-click) would run every bot twice on one database."""
+    global _LOCK
+    C.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    f = open(C.DATA_DIR / "app.lock", "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0); msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close(); return False
+    _LOCK = f                                     # released automatically when the process exits
+    return True
+
+
 def pick_port(want, tries=10):
     """The configured port, or the next free one if another program already uses it."""
     for p in range(want, want + tries):
@@ -33,6 +55,9 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(encoding="utf-8"); sys.stderr.reconfigure(encoding="utf-8")
     except Exception:
         pass
+    if not single_instance():
+        print("\n!! הבוטים כבר רצים במחשב הזה (בחלון אחר או מההפעלה האוטומטית). אין צורך להפעיל שוב.\n")
+        sys.exit(3)
     port = pick_port(C.PORT)
     if port is None:
         print(f"\n!! הפורטים {C.PORT}-{C.PORT + 9} תפוסים. סגור חלון קודם של התוכנה או שנה PORT בקובץ .env\n")

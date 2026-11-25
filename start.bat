@@ -29,7 +29,8 @@ if not exist .env copy .env.example .env >nul
 rem keep the bots running: restart automatically after a crash or a network failure
 :run
 .venv\Scripts\python -m app
-if errorlevel 2 if not errorlevel 3 (
+rem 2 = no free port, 3 = the bots already run in another window: restarting would not help
+if errorlevel 2 if not errorlevel 4 (
   pause
   exit /b 2
 )

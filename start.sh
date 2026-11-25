@@ -15,7 +15,8 @@ set +e
 while true; do
   .venv/bin/python -m app
   code=$?
-  [ "$code" = 2 ] && exit 2          # no free port - restarting would not help
+  # 2 = no free port, 3 = already running in another window: restarting would not help
+  { [ "$code" = 2 ] || [ "$code" = 3 ]; } && exit "$code"
   echo "The app stopped (exit $code). Restarting in 15 seconds - Ctrl+C to stop."
   sleep 15
 done
