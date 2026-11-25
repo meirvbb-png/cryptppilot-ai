@@ -15,25 +15,25 @@
   async function jget(url) {
     let r;
     try { r = await fetch(url, { cache: 'no-store' }); }
-    catch (e) { throw new Error(url.split('/')[2] + ' חוסמת גישה ישירה מהדפדפן (CORS) – נדרש שרת'); }
-    if (!r.ok) throw new Error(url.split('/')[2] + ' HTTP ' + r.status);
+    catch (e) { throw new Error('אין חיבור לשרת הנתונים'); }
+    if (!r.ok) throw new Error((url.includes('/bybit/') ? 'bybit' : 'mexc') + ' HTTP ' + r.status);
     return r.json();
   }
   async function ohlcv(ex, sym, tf, limit) {
     if (ex === 'bybit') {
-      const d = await jget(`https://api.bybit.com/v5/market/kline?category=linear&symbol=${raw(sym)}&interval=${TFB[tf]}&limit=${limit}`);
+      const d = await jget(`/x/bybit/v5/market/kline?category=linear&symbol=${raw(sym)}&interval=${TFB[tf]}&limit=${limit}`);
       if (d.retCode !== 0) throw new Error('bybit: ' + d.retMsg);
       return d.result.list.map(c => [+c[0], +c[1], +c[2], +c[3], +c[4], +c[5]]).reverse();
     }
-    const d = await jget(`https://api.mexc.com/api/v3/klines?symbol=${raw(sym)}&interval=${TFM[tf]}&limit=${limit}`);
+    const d = await jget(`/x/mexc/api/v3/klines?symbol=${raw(sym)}&interval=${TFM[tf]}&limit=${limit}`);
     return d.map(c => [+c[0], +c[1], +c[2], +c[3], +c[4], +c[5]]);
   }
   async function book(ex, sym) {
     if (ex === 'bybit') {
-      const d = await jget(`https://api.bybit.com/v5/market/orderbook?category=linear&symbol=${raw(sym)}&limit=5`);
+      const d = await jget(`/x/bybit/v5/market/orderbook?category=linear&symbol=${raw(sym)}&limit=5`);
       return { bid: +d.result.b[0][0], ask: +d.result.a[0][0] };
     }
-    const d = await jget(`https://api.mexc.com/api/v3/depth?symbol=${raw(sym)}&limit=5`);
+    const d = await jget(`/x/mexc/api/v3/depth?symbol=${raw(sym)}&limit=5`);
     return { bid: +d.bids[0][0], ask: +d.asks[0][0] };
   }
   const pcache = {};
@@ -42,9 +42,9 @@
     if (c && Date.now() - c.t < 2000) return c.p;
     let p;
     if (ex === 'bybit') {
-      const d = await jget(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${raw(sym)}`);
+      const d = await jget(`/x/bybit/v5/market/tickers?category=linear&symbol=${raw(sym)}`);
       p = +d.result.list[0].lastPrice;
-    } else p = +(await jget(`https://api.mexc.com/api/v3/ticker/price?symbol=${raw(sym)}`)).price;
+    } else p = +(await jget(`/x/mexc/api/v3/ticker/price?symbol=${raw(sym)}`)).price;
     pcache[k] = { p, t: Date.now() };
     return p;
   }
