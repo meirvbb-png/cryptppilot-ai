@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def _load_dotenv():
     p = ROOT / ".env"
     if p.exists():
-        for line in p.read_text().splitlines():
+        for line in p.read_text(encoding="utf-8-sig", errors="replace").splitlines():   # Windows-safe
             line = line.strip()
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
