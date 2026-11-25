@@ -16,7 +16,7 @@
     let r;
     try { r = await fetch(url, { cache: 'no-store' }); }
     catch (e) { throw new Error('אין חיבור לשרת הנתונים'); }
-    if (!r.ok) throw new Error((url.includes('/bybit/') ? 'bybit' : 'mexc') + ' HTTP ' + r.status);
+    if (!r.ok) throw new Error((url.includes('/bybit/') ? 'bybit' : 'mexc') + ' HTTP ' + r.status + (r.status === 502 ? await r.text().then(t => ' ' + t.slice(0, 200)).catch(() => '') : ''));
     return r.json();
   }
   async function ohlcv(ex, sym, tf, limit) {
