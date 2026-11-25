@@ -13,7 +13,11 @@ _lock = threading.Lock()
 def _ex(name):
     with _lock:
         if name not in _inst:
-            _inst[name] = getattr(ccxt, name)({"enableRateLimit": True, "timeout": 10000, "options": {"defaultType": "swap"}})
+            cfg = {"enableRateLimit": True, "timeout": 15000, "options": {"defaultType": "swap"}}
+            proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+            if proxy:
+                cfg["httpsProxy"] = proxy   # only when the host environment requires an egress proxy
+            _inst[name] = getattr(ccxt, name)(cfg)
         return _inst[name]
 
 
